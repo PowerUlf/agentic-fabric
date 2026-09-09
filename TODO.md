@@ -1,7 +1,7 @@
 # TODO — Phase 2: Modulsystem und `workspace`-Modul
 
 Stand 2026-09-09. Phase 0 und 1 sind fertig, committet und gepusht.
-Plan: `~/.claude/plans/das-ziel-ist-es-idempotent-torvalds.md`
+Plan: [docs/plan.md](docs/plan.md)
 
 ## Wieder reinkommen (2 Minuten)
 

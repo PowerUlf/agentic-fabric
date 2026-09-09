@@ -6,7 +6,8 @@ Agents that **operate the Fabric platform itself** — reconcile workspaces agai
 declared desired state, watch job health, deploy items, audit governance — rather than
 only answering questions about the data inside it.
 
-> Status: early. Phase 0 (skeleton) of the plan. Nothing works yet.
+> Status: early. Phases 0 and 1 of [the plan](docs/plan.md) are done — `afab status`
+> talks to a live tenant over both transports. The reconciler itself starts at phase 2.
 
 ## Why this exists
 
@@ -82,6 +83,7 @@ afab --help
 
 ## Documentation
 
+- [Plan](docs/plan.md) — the phased roadmap this is being built against
 - [Architecture](docs/architecture.md)
 - [ADR 0001 — Build the kernel on Microsoft's MCP servers](docs/adr/0001-kernel-on-ms-mcp.md)
 
