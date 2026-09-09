@@ -7,13 +7,13 @@ guardrail the workspace module has, for free.
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 
-class Risk(str, Enum):
+class Risk(StrEnum):
     """How much damage a change can do if it is wrong.
 
     Policy reasons about this, not about the action verb — so a module can add new
