@@ -1,0 +1,55 @@
+[project]
+name = "agentic-fabric"
+version = "0.0.1"
+description = "An agentic operating system for Microsoft Fabric"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+license = { text = "MIT" }
+authors = [{ name = "PowerUlf" }]
+
+dependencies = [
+    "anthropic>=0.40",
+    "azure-identity>=1.19",
+    "httpx>=0.27",
+    "mcp>=1.2",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "pyyaml>=6.0",
+    "rich>=13.9",
+    "typer>=0.15",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "ruff>=0.8",
+]
+
+[project.scripts]
+afab = "afabric.cli:app"
+
+# Modules are discovered through this entry point group plus a scan of
+# src/afabric/modules/. Built-in modules register here; third-party modules
+# can join the same group from their own package.
+[project.entry-points."afabric.modules"]
+workspace = "afabric.modules.workspace.manifest:MANIFEST"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/afabric"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+asyncio_mode = "auto"

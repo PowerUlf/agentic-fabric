@@ -1,0 +1,8 @@
+[tools]
+# ms-fabric-cli requires 3.10-3.12, fabric-cicd requires 3.9-3.13.
+# The host system runs 3.14, which neither supports — so pin 3.12 here.
+python = "3.12"
+uv = "latest"
+
+[env]
+_.python.venv = { path = ".venv", create = true }

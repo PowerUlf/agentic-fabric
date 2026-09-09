@@ -1,0 +1,31 @@
+# Desired state. Every top-level key below `modules` belongs to exactly one module,
+# which validates that key and nothing else.
+#
+# Files in fabric.d/*.yaml are merged on top of this one, in filename order.
+
+version: 1
+
+policy:
+  # Refuse a run that would produce more changes than this at once.
+  max_blast_radius: 25
+  # Destructive changes always need approval; these need it too.
+  require_approval:
+    - workspace.update
+  # Never touch anything matching these, whatever the desired state says.
+  deny:
+    - workspace: "Production*"
+
+# --- module: workspace --------------------------------------------------------
+workspaces:
+  - name: Sales Analytics Dev
+    description: Development workspace for the sales reporting team
+    capacity: my-fabric-capacity
+    folders:
+      - Bronze
+      - Silver
+      - Gold
+    roles:
+      # Principal ids until the Graph MCP server is wired up for email resolution.
+      - principal: 00000000-0000-0000-0000-000000000000
+        type: User
+        role: Contributor

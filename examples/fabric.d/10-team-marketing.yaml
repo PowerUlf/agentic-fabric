@@ -1,0 +1,9 @@
+# Merged on top of ../fabric.yaml. A team can own one of these without touching the
+# shared file — the conf.d pattern.
+
+workspaces:
+  - name: Marketing Analytics Dev
+    description: Development workspace for the marketing team
+    capacity: my-fabric-capacity
+    folders:
+      - Campaigns
