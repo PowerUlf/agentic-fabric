@@ -17,10 +17,20 @@ ruff check .                    # lint; ruff check --fix . to autofix
 
 afab status                     # live check against the tenant
 afab status --transport rest    # same output, other backend — see below
+afab modules                    # discovered modules; exits 1 on any module problem
 afab logout                     # drop the stored sign-in
+
+AFABRIC_MODULE_PATH=/some/dir afab modules   # load modules straight from directories
 ```
 
 Run `ruff check . && pytest -q` before every commit.
+
+**The repo lives on a 9p share** (`~/omarchy` is a symlink to `/mnt/mac`, mounted from
+the Mac host). Python startup occasionally blocks for minutes in `p9_client_rpc` —
+twice on 2026-09-10, once for `pytest`, once for `afab modules` — while the same command
+finishes in seconds on the next run. Run anything that imports the venv in the
+background and check the process state (`ps -o stat,wchan`) before assuming a hang is
+in the code.
 
 **Python floor is 3.11** (`StrEnum`, `ExceptionGroup`), ceiling is 3.12 because
 `ms-fabric-cli` rejects 3.13+. The host system runs 3.14, so never invoke bare

@@ -6,8 +6,9 @@ Agents that **operate the Fabric platform itself** — reconcile workspaces agai
 declared desired state, watch job health, deploy items, audit governance — rather than
 only answering questions about the data inside it.
 
-> Status: early. Phases 0 and 1 are done — `afab status`
-> talks to a live tenant over both transports. The reconciler itself starts at phase 2.
+> Status: early. Phases 0–2 are done: `afab status` talks to a live tenant over both
+> transports, modules are discovered from directories, and the workspace module plans
+> changes against a declared state. Applying them starts at phase 3.
 
 ## Why this exists
 

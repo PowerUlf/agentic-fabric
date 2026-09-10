@@ -1,0 +1,35 @@
+{
+  "workspaces": [
+    {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "name": "My workspace",
+      "description": "",
+      "capacity_id": null,
+      "type": "Personal",
+      "details_loaded": false,
+      "folders": [],
+      "roles": []
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000002",
+      "name": "team_dev",
+      "description": "",
+      "capacity_id": "22222222-2222-2222-2222-222222222223",
+      "type": "Workspace",
+      "details_loaded": true,
+      "folders": [],
+      "roles": [
+        {
+          "assignment_id": "11111111-1111-1111-1111-111111111111",
+          "principal": "11111111-1111-1111-1111-111111111111",
+          "type": "User",
+          "role": "Admin"
+        }
+      ]
+    }
+  ],
+  "capacities": {
+    "cap-f4": "22222222-2222-2222-2222-222222222223",
+    "Premium Per User - Reserved": "22222222-2222-2222-2222-222222222224"
+  }
+}

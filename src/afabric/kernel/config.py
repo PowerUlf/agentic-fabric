@@ -6,7 +6,9 @@ separate concern and lives in fabric.yaml + fabric.d/ — see phase 2.
 
 from __future__ import annotations
 
+import os
 from enum import StrEnum
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -62,8 +64,19 @@ class Settings(BaseSettings):
     journal_path: str = ".afabric/journal.jsonl"
     max_blast_radius: int = 25
 
+    module_path: str = ""
+    """Extra directories holding modules, separated like $PATH.
+
+    Each subdirectory with a `manifest.py` is a module. Built-in modules are always
+    found; this is how an out-of-tree module joins without touching the package.
+    """
+
     # --- Agent loop ----------------------------------------------------------
     model: str = "claude-sonnet-5"
+
+    @property
+    def module_dirs(self) -> list[Path]:
+        return [Path(part) for part in self.module_path.split(os.pathsep) if part]
 
     @property
     def has_service_principal(self) -> bool:

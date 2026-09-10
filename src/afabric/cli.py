@@ -12,6 +12,7 @@ from rich.table import Table
 from afabric import __version__
 from afabric.kernel.auth import AuthError, forget
 from afabric.kernel.config import Transport, load_settings
+from afabric.kernel.modules import discover
 from afabric.kernel.session import connect
 
 app = typer.Typer(
@@ -137,8 +138,30 @@ def logout() -> None:
 
 @app.command()
 def modules() -> None:
-    """List the modules the kernel discovered."""
-    console.print(f"modules: {_NOT_YET} (phase 2)")
+    """List the modules the kernel discovered, and anything wrong with them."""
+    settings = load_settings()
+    registry = discover(settings.module_dirs)
+
+    table = Table(title=f"Modules ({len(registry)})", title_justify="left", header_style="bold")
+    for column in ("Name", "Version", "Config key", "Provides", "Requires", "Origin"):
+        table.add_column(column, overflow="fold")
+    for module in registry:
+        manifest = module.manifest
+        table.add_row(
+            manifest.name,
+            manifest.version,
+            manifest.config_key or "[dim]—[/]",
+            ", ".join(manifest.provides) or "[dim]—[/]",
+            ", ".join(manifest.requires) or "[dim]—[/]",
+            module.origin,
+        )
+    console.print(table)
+
+    if registry.problems:
+        console.print(f"\n[red bold]{len(registry.problems)} problem(s)[/]")
+        for problem in registry.problems:
+            console.print(f"  [red]•[/] {problem.source}: {problem.message}")
+        raise typer.Exit(1)
 
 
 @app.command()

@@ -1,76 +1,66 @@
-# TODO — Phase 2: Modulsystem und `workspace`-Modul
+# TODO — Phase 3: Plan und Apply mit Guardrails
 
-Stand 2026-09-09. Phase 0 und 1 sind fertig, committet und gepusht.
+Stand 2026-09-10. Phase 0, 1 und 2 sind fertig, committet und gepusht.
 Plan: `docs/plan.md` (lokal, nicht im Repo)
 
-## Wieder reinkommen (2 Minuten)
+## Wieder reinkommen
 
 ```bash
 cd ~/omarchy/agentic-fabric
-mise install                      # falls die Shell frisch ist
-.venv/bin/afab status             # muss faf_dev + capfabricf4 zeigen, ohne Login
-.venv/bin/pytest -q               # 16 grün
+.venv/bin/afab status             # muss faf_dev zeigen, ohne Login
+.venv/bin/afab modules            # workspace, keine Probleme
+.venv/bin/pytest -q               # 57 grün
 ```
 
-Zeigt `afab status` einen Device-Code, ist der gespeicherte Login abgelaufen —
-einmal bestätigen, dann ist wieder Ruhe.
+## Vor dem ersten Schreibzugriff
 
-## Reihenfolge für morgen
+- [ ] **Capacity `capfabricf4` fortsetzen.** Stand 2026-09-10 ist sie `Inactive`
+      (pausiert). Lesen geht, Anlegen und Zuweisen auf dieser Capacity nicht.
+- [ ] Einen **Wegwerf-Workspace** für die E2E-Verifikation festlegen, nicht `faf_dev`.
 
-Der Kern-Mechanismus zuerst, das Modul als sein erster Nutzer. Andersherum
-entsteht ein Reconciler mit angeklebtem Modulsystem statt umgekehrt.
+## Reihenfolge
 
-### 1. `kernel/modules.py` — Discovery
-- [ ] Entry-Point-Gruppe `afabric.modules` lesen (`importlib.metadata`)
-- [ ] `src/afabric/modules/` scannen, damit ein Verzeichnis ohne
-      `pyproject.toml`-Eintrag ebenfalls gefunden wird
-- [ ] Duplikate und kaputte Manifeste melden statt still zu schlucken
-- [ ] `provides`/`requires` gegen den ToolBus auflösen, ungedeckte
-      `requires` als klaren Fehler
-- [ ] `afab modules` zeigt Name, Version, Config-Key, Capabilities
+### 1. `kernel/policy.py`
+- [ ] `DESTRUCTIVE` braucht immer Freigabe, `require_approval` zusätzlich pro Verb
+- [ ] `max_blast_radius`: Lauf mit mehr Changes ablehnen, nicht kürzen
+- [ ] `deny`-Muster auswerten — Form im Beispiel ist `{workspace: "Production*"}`,
+      der Kernel kennt aber keine Workspaces. Muster gegen `Change.target` statt
+      gegen modul-spezifische Felder?
+- [ ] **Eigene Identität nie entziehen.** Live belegt: mit `prune: true` plant das
+      Workspace-Modul `role.revoke` für die Admin-Rolle des angemeldeten Nutzers —
+      die einzige Rolle auf `faf_dev`. Harte Sperre im Kernel, unabhängig vom YAML.
+      Braucht die Object-ID des Aufrufers (aus dem Token-Claim `oid`).
+- [ ] Doppelte Einstellung auflösen: `max_blast_radius` gibt es in `Settings` (env)
+      und in `policy` (YAML). Eine Quelle.
 
-### 2. Konfig-Kaskade
-- [ ] `fabric.yaml` laden, `fabric.d/*.yaml` in Dateinamen-Reihenfolge mergen
-- [ ] Merge-Semantik festlegen: Listen anhängen oder ersetzen?
-      **Vorschlag:** Workspaces per `name` zusammenführen, Skalare überschreiben
-- [ ] Jedes Modul validiert nur seinen eigenen Top-Level-Key
-- [ ] Unbekannter Top-Level-Key → Fehler mit Hinweis auf die geladenen Module
+### 2. `kernel/journal.py`
+- [ ] Append-only JSONL, ein Eintrag pro geplantem und pro ausgeführtem Change
 
-### 3. `modules/workspace/model.py` — Schema
-- [ ] Workspace: `name`, `description`, `capacity`, `folders[]`, `roles[]`
-- [ ] Capacity als Name statt UUID (Auflösung über `list_capacities`)
-- [ ] Rollen zunächst mit Principal-IDs — siehe offene Punkte
+### 3. `workspace/process.py` — `apply()`
+- [ ] Reihenfolge: Workspace anlegen vor Ordnern und Rollen darin; die `planned:`-IDs
+      aus `project()` durch echte ersetzen
+- [ ] Neue Tools im Katalog: `create_workspace`, `update_workspace`,
+      `assign_to_capacity`, `create_folder`, `delete_folder`, `add/update/delete_workspace_role`,
+      `delete_workspace` — Argumentnamen am Live-Server prüfen (`list_tools`), MCP
+      nimmt hier `Details`-Objekte
+- [ ] LRO-Polling für die Operationen, die eines zurückgeben
 
-### 4. `modules/workspace/process.py` — `plan()`
-- [ ] Rein funktional: `plan(desired, observed) -> list[Change]`, keine I/O
-- [ ] Verben: `workspace.create|update|delete`, `folder.create|delete`,
-      `role.grant|update|revoke`
-- [ ] Risiko korrekt setzen — `delete` und `role.revoke` sind `DESTRUCTIVE`
-- [ ] Nicht deklarierte Workspaces **nicht** löschen; das braucht ein
-      explizites `prune: true`, sonst ist der erste Lauf ein Massaker
+### 4. CLI
+- [ ] `afab plan [--file fabric.yaml]` — Discovery, Laden, `observe`, `plan`, farbige Tabelle
+- [ ] `afab apply` — gleicher Plan, Policy, Freigabe, `apply`, Journal
+- [ ] Vor `plan`: `registry.ok` prüfen, bei Modulproblemen abbrechen
 
-### 5. Tests
-- [ ] Fixtures aus dem echten Tenant aufzeichnen (`faf_dev`) und anonymisieren
-- [ ] Drift in beide Richtungen, leerer Diff bei Gleichstand
-- [ ] Idempotenz: `plan(a, apply(plan(a,b), b)) == []`
-- [ ] **Modularitäts-Test:** Dummy-Modul im Testverzeichnis wird ohne jede
-      Kern-Änderung entdeckt und gelistet. Das ist der Lackmustest für die
-      ganze Architektur — wenn der wehtut, stimmt der Schnitt nicht.
+### 5. Verifikation (aus dem Plan)
+- [ ] Wegwerf-Workspace anlegen → `plan` leer → YAML ändern → `plan` zeigt genau die
+      Änderung → `apply` → `plan` wieder leer
+- [ ] Löschen ohne Freigabe muss blockiert werden
 
-## Offene Punkte, die eine Entscheidung brauchen
+## Ungeprüft gegen den echten Tenant
 
-- [ ] **Principal-IDs vs. E-Mail.** Rollen brauchen UUIDs. Komfortable
-      E-Mail-Auflösung geht nur über den Microsoft Graph MCP Server.
-      Morgen: IDs im YAML. Später entscheiden, ob Graph dazukommt.
-- [ ] **Service Principal.** Für den unbeaufsichtigten REST-Pfad fehlen noch
-      App-Registrierung und das Tenant-Setting
-      „Service principals can use Fabric APIs". Für Phase 2 nicht nötig,
-      für Phase 5 (Dienst) schon.
-- [ ] **`prune`-Semantik.** Soll der Reconciler je etwas löschen, das nicht im
-      YAML steht? Vorschlag: nur mit explizitem Flag, und nie ohne Freigabe.
+- **Ordner-Antwortform.** `faf_dev` hat keine Ordner, `parentFolderId` in `observe()`
+  ist aus der Doku übernommen. Beim ersten `folder.create` in Phase 3 prüfen.
 
-## Nicht vergessen
+## Offen, ohne Eile
 
-- Core MCP ist Preview. Ändern sich Tool-Namen, ist `kernel/tools.py` die
-  einzige Stelle — dort nachziehen, nirgends sonst.
-- Vor jedem Commit: `.venv/bin/ruff check . && .venv/bin/pytest -q`
+- [ ] Principal-IDs vs. E-Mail — Graph MCP Server, später
+- [ ] Service Principal für den unbeaufsichtigten REST-Pfad — Phase 5
