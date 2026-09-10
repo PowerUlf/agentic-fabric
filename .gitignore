@@ -13,6 +13,9 @@ dist/
 .pytest_cache/
 .ruff_cache/
 
+# Working plan — kept locally, deliberately not published.
+docs/plan.md
+
 # Journal / local state
 *.jsonl
 .afabric/

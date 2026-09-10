@@ -87,7 +87,9 @@ walks into groups and cause chains — keep new error paths going through it.
 
 ## Working style in this repo
 
-Phases are defined in `docs/plan.md`, and `TODO.md` carries the current pick-up point. Each phase ends with a commit, and only
+Phases are defined in `docs/plan.md` — a local, gitignored file, so it is present on
+the maintainer's machine but absent from a fresh clone. `TODO.md` is tracked and
+carries the current pick-up point. Each phase ends with a commit, and only
 after its verification actually ran — for tenant-facing work that means a live call,
 not just green unit tests.
 
