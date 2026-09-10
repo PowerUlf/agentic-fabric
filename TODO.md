@@ -14,8 +14,9 @@ cd ~/omarchy/agentic-fabric
 
 ## Vor dem ersten Schreibzugriff
 
-- [ ] **Capacity `capfabricf4` fortsetzen.** Stand 2026-09-10 ist sie `Inactive`
-      (pausiert). Lesen geht, Anlegen und Zuweisen auf dieser Capacity nicht.
+- [x] **Capacity `capfabricf4` fortsetzen.** Am 2026-09-10 wieder gestartet, `Active`.
+      Pausiert sie erneut, scheitern Anlegen und Zuweisen darauf — vor Schreibläufen
+      mit `afab status` prüfen.
 - [ ] Einen **Wegwerf-Workspace** für die E2E-Verifikation festlegen, nicht `faf_dev`.
 
 ## Reihenfolge
