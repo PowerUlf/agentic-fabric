@@ -105,9 +105,11 @@ class RestClient:
                 response = await self._client.get(f"/operations/{operation_id}/result")
                 if response.status_code == 204 or not response.content:
                     return None
-                # Operations that produce nothing (assignToCapacity) answer /result with
-                # an error rather than an empty body. That is success, not a failure —
-                # but any other error body must not be mistaken for a result.
+                # Operations that produce nothing (assignToCapacity) are documented to
+                # answer /result with this error rather than an empty body; that is
+                # success, not failure. Unverified against the live tenant — no operation
+                # has come back asynchronously yet. Fail-safe either way: an unexpected
+                # error raises rather than being mistaken for a result.
                 if response.status_code >= 400:
                     if "OperationHasNoResult" in response.text:
                         return None

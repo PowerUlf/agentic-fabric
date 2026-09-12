@@ -10,7 +10,10 @@ cd ~/omarchy/agentic-fabric
 .venv/bin/afab status             # muss faf_dev zeigen, ohne Login
 .venv/bin/afab modules            # workspace, keine Probleme
 .venv/bin/pytest -q               # 94 grün
-.venv/bin/afab plan -f examples/fabric.yaml   # liest nur, ändert nichts
+
+# Lesender Lauf gegen den Tenant. Nicht examples/fabric.yaml nehmen — die nennt die
+# Capacity `my-fabric-capacity`, die es hier nicht gibt, und bricht mit PlanError ab.
+.venv/bin/afab plan -f .afabric/e2e/fabric.yaml    # lokal, gitignored
 ```
 
 ## Was Phase 3 am 2026-09-12 live bewiesen hat
@@ -70,5 +73,13 @@ korrekt benennen.
       `McpBackend` nicht. Keine der Workspace- und Ordner-Operationen kam bisher
       asynchron zurück. Der MCP-Server bietet `get_operation_state`/`get_operation_result`,
       falls es nötig wird.
+- [ ] **`assign_to_capacity` ist live ungetestet** — und damit der REST-Fallback über den
+      MCP-Transport, das einzige architektonisch neue Stück im ToolBus. In der
+      Verifikation kam es nie dran, weil der Workspace seine Capacity schon beim Anlegen
+      bekam und `workspace.assign_capacity` deshalb nie geplant wurde. Nur Unit-Tests.
+- [ ] **`OperationHasNoResult` ist geraten.** `await_operation` liest diesen Fehlercode
+      als „Operation ohne Ergebnis". Kein Aufruf in Phase 3 kam asynchron zurück, der
+      Code ist also nie gelaufen. Fällt im Zweifel sicher aus: ein unerwarteter Fehler
+      fliegt, statt als Ergebnis durchzugehen.
 - [ ] Principal-IDs vs. E-Mail — Graph MCP Server, später
 - [ ] Service Principal für den unbeaufsichtigten REST-Pfad — Phase 5
