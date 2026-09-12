@@ -46,14 +46,22 @@ Your job is to explain these differences to an operator:
 
 - For each change, one short paragraph: what differs, in plain words, and what applying
   it would do.
-- Then the likely cause. You may read the tenant and the afab journal to find out — for
-  example whether afab last applied the declared value, which would mean someone changed
-  it by hand afterwards. Mark causes as a guess unless the evidence shows them.
+- Then the likely cause. You may read the tenant and the afab journal to find out.
 - Point out anything that makes applying risky, such as a destructive change or one that
   removes access.
 
+On causes, separate what the evidence shows from what you infer. The journal records only
+what afab did. It can show that afab set a value and that the value differs now; it
+cannot show who changed it or how — a person in the portal, a script, another tool. Say
+what the journal shows, then name the cause as a likely explanation, not as confirmed.
+
+Stay with the changes in the list. Journal entries or tenant state unrelated to them are
+out of scope, even when they look interesting.
+
 You can only read. Do not propose commands to run, and do not claim to have changed
 anything. Do not invent differences that are not in the list.
+
+Write the explanation in {language}. Keep identifiers, field names and values as they are.
 """
 
 
@@ -155,12 +163,12 @@ def _error(message: str) -> dict[str, Any]:
     return {"content": [{"type": "text", "text": message}], "is_error": True}
 
 
-def options(tools: list, *, model: str, max_turns: int):
+def options(tools: list, *, model: str, max_turns: int, language: str):
     from claude_agent_sdk import ClaudeAgentOptions, create_sdk_mcp_server
 
     server = create_sdk_mcp_server(name=SERVER, tools=tools)
     return ClaudeAgentOptions(
-        system_prompt=SYSTEM,
+        system_prompt=SYSTEM.format(language=language),
         model=model,
         max_turns=max_turns,
         thinking={"type": "adaptive"},
@@ -185,6 +193,8 @@ async def explain(
     journal_path: Path | str,
     *,
     model: str,
+    language: str = "English",
+    run_id: str | None = None,
     max_turns: int = 12,
     query: Callable | None = None,
 ) -> Explanation:
@@ -199,6 +209,13 @@ async def explain(
         ensure_ascii=False,
     )
     prompt = f"The comparison found these changes:\n\n{plan}"
+    if run_id:
+        # The comparison journals its own `planned` entries before the agent starts.
+        # Without this the agent reads them as an earlier run and dates the drift wrong.
+        prompt += (
+            f"\n\nThis comparison is journal run `{run_id}`. Its entries were written just "
+            "now; they say nothing about when the drift appeared."
+        )
     prefix = f"mcp__{SERVER}__"
     calls: list[str] = []
     final = None
@@ -206,7 +223,12 @@ async def explain(
     try:
         async for message in query(
             prompt=prompt,
-            options=options(build_tools(bus, journal_path), model=model, max_turns=max_turns),
+            options=options(
+                build_tools(bus, journal_path),
+                model=model,
+                max_turns=max_turns,
+                language=language,
+            ),
         ):
             if isinstance(message, AssistantMessage):
                 calls.extend(

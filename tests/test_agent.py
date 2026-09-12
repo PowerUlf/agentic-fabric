@@ -122,10 +122,29 @@ def test_options_switch_off_everything_but_our_tools():
     assert "mcp__afab__delete_workspace" not in options.allowed_tools
 
 
+def test_system_prompt_carries_language_and_evidence_rule():
+    query, seen = _fake_query(_result())
+    asyncio.run(
+        agent.explain(FakeBus(), [CHANGE], "j.jsonl", model="m", language="German", query=query)
+    )
+    system = seen["options"].system_prompt
+    assert "in German" in system
+    assert "not as confirmed" in system and "{" not in system
+
+
 def test_plan_is_sent_without_module_metadata():
     query, seen = _fake_query(_result())
     _explain(query)
     assert "Sales Dev" in seen["prompt"] and "ws-1" not in seen["prompt"]
+    assert "journal run" not in seen["prompt"]
+
+
+def test_own_run_is_named_so_it_is_not_read_as_history():
+    query, seen = _fake_query(_result())
+    asyncio.run(
+        agent.explain(FakeBus(), [CHANGE], "j.jsonl", model="m", run_id="abc123", query=query)
+    )
+    assert "journal run `abc123`" in seen["prompt"]
 
 
 # --- loop -------------------------------------------------------------------------

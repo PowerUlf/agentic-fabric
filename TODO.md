@@ -63,11 +63,14 @@ Erledigte Altlasten aus Phase 3:
       `faf_e2e_scratch` (danach per Prune gelöscht): ohne Drift kein Modellaufruf;
       Beschreibung geändert + Ordner `Silver` gelöscht → beide Abweichungen genau
       benannt, Ursache aus Journal-Zeitstempeln hergeleitet. 4–5 Turns, ca. $0.10 je Lauf
-      (Schätzwert, aus dem Max-Abo). Offene Feinheiten, ohne Eile:
-      - Der Agent nennt Ursachen „confirmed, not a guess", obwohl das Journal nur zeigt,
-        dass afab es *nicht* war. Systemprompt schärfen.
-      - Über REST schweifte er zu alten Prune-Läufen ab — nicht Teil der Changes.
-      - Antwort kommt auf Englisch; ggf. Sprache konfigurierbar machen.
+      (Schätzwert, aus dem Max-Abo). Nachgeschärft am 2026-09-13, live geprüft:
+      - Beleg und Vermutung getrennt: Systemprompt sagt, das Journal zeigt nur, was afab
+        tat, nicht wer sonst. Agent schreibt jetzt „Vermutung, nicht belegt".
+      - Sprache über `AFABRIC_LANGUAGE`, Standard `German`.
+      - Eigene Run-ID im Prompt: vorher las er die `planned`-Einträge des laufenden
+        Vergleichs als früheren Lauf und datierte die Drift falsch.
+      - Rest: Alte Prune-Läufe erwähnt er noch als ausdrücklich markierten Nachsatz
+        „außerhalb der Änderungen". Hinnehmbar.
       - Auf dem Mac liegt die venv unter `~/.venvs/agentic-fabric`
         (`UV_PROJECT_ENVIRONMENT`), die Repo-`.venv` gehört der VM.
       Läuft auf dem **Claude Agent SDK** mit dem Max-Abo, nicht auf einem API-Key:

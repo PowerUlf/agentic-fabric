@@ -419,7 +419,12 @@ async def _explain_session(settings, registry, desired, journal, transport) -> i
         # A refused run still gets explained: explaining changes nothing.
         with console.status(f"explaining with {settings.model}…"):
             result = await agent.explain(
-                bus, run.changes, settings.journal_path, model=settings.model
+                bus,
+                run.changes,
+                settings.journal_path,
+                model=settings.model,
+                language=settings.language,
+                run_id=journal.run_id,
             )
 
     journal.record(

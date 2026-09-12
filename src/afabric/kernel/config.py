@@ -73,6 +73,9 @@ class Settings(BaseSettings):
     # --- Agent loop ----------------------------------------------------------
     model: str = "claude-sonnet-5"
 
+    language: str = "German"
+    """Language the agent writes explanations in, as a plain name (`English`, `German`)."""
+
     @property
     def module_dirs(self) -> list[Path]:
         return [Path(part) for part in self.module_path.split(os.pathsep) if part]
