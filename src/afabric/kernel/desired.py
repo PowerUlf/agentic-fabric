@@ -22,12 +22,32 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError
+from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, model_validator
 
 from afabric.kernel.modules import RESERVED_CONFIG_KEYS, ModuleRegistry
 
 SUPPORTED_VERSIONS = frozenset({1})
 CASCADE_DIR = "fabric.d"
+
+
+class DenyRule(BaseModel):
+    """Changes matching every given field are never applied, whatever the desired state says.
+
+    Fields are shell-style globs over what every `Change` has — the kernel knows no
+    module's vocabulary, so a rule cannot say "workspace", only "target".
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    module: str | None = None
+    action: str | None = None
+    target: str | None = None
+
+    @model_validator(mode="after")
+    def _not_empty(self) -> DenyRule:
+        if self.module is None and self.action is None and self.target is None:
+            raise ValueError("a deny rule needs at least one of module, action, target")
+        return self
 
 
 class PolicyConfig(BaseModel):
@@ -41,8 +61,8 @@ class PolicyConfig(BaseModel):
     require_approval: list[str] = []
     """Action verbs that need approval even when not destructive."""
 
-    deny: list[dict[str, str]] = []
-    """Patterns no change may touch, whatever the desired state says."""
+    deny: list[DenyRule] = []
+    """Changes matching any of these are refused outright."""
 
     prune: bool = False
     """Whether modules may remove what the desired state does not declare.

@@ -9,6 +9,9 @@ Three functions, split by what they are allowed to touch:
 `plan` being pure is what lets the whole module be tested against recorded fixtures,
 and `project` is what makes idempotency checkable: planning against the projected
 state must yield nothing.
+
+`apply(changes, bus)` executes a plan in order. It is only ever handed changes policy
+has already let through.
 """
 
 from __future__ import annotations
@@ -17,7 +20,7 @@ from typing import Any
 from uuid import UUID
 
 from afabric.kernel.desired import PolicyConfig
-from afabric.model.change import Change, Risk
+from afabric.model.change import Change, Outcome, Risk
 from afabric.modules.workspace.model import (
     Config,
     Observed,
@@ -372,3 +375,87 @@ def _find(observed: Observed, meta: dict[str, Any]) -> ObservedWorkspace:
         if workspace.id == meta.get("workspace_id"):
             return workspace
     raise KeyError(f"no workspace with id {meta.get('workspace_id')!r} in the projected state")
+
+
+# --- apply ------------------------------------------------------------------------
+
+
+async def apply(changes: list[Change], bus) -> list[Outcome]:
+    """Execute changes in plan order, stopping at the first failure.
+
+    Folders and roles for a workspace created in the same run carry only its name; the id
+    becomes known once `workspace.create` returns and is filled in from there. Stopping
+    at the first failure is deliberate — later changes often depend on earlier ones, and
+    a half-applied run is easier to reason about when it stops at a known point.
+    """
+    created: dict[str, str] = {}
+    outcomes: list[Outcome] = []
+
+    for change in changes:
+        try:
+            output = await _apply_one(change, bus, created)
+        except Exception as exc:
+            outcomes.append(Outcome(change=change, ok=False, detail=f"{type(exc).__name__}: {exc}"))
+            break
+        outcomes.append(Outcome(change=change, ok=True, output=output or {}))
+
+    return outcomes
+
+
+async def _apply_one(change: Change, bus, created: dict[str, str]) -> dict[str, Any] | None:
+    action, after, meta = change.action, change.after or {}, change.metadata
+
+    def workspace_id() -> str:
+        ws_id = meta.get("workspace_id") or created.get(meta.get("workspace", ""))
+        if not ws_id:
+            raise RuntimeError(f"no id known for workspace {meta.get('workspace')!r}")
+        return ws_id
+
+    if action == "workspace.create":
+        args = {"displayName": after["name"], "description": after.get("description") or ""}
+        if after.get("capacity_id"):
+            args["capacityId"] = after["capacity_id"]
+        result = await bus.call("create_workspace", **args)
+        created[after["name"]] = result["id"]
+        return {"workspace_id": result["id"]}
+
+    if action == "workspace.update":
+        await bus.call(
+            "update_workspace", workspaceId=workspace_id(), description=after["description"]
+        )
+    elif action == "workspace.assign_capacity":
+        await bus.call(
+            "assign_to_capacity", workspaceId=workspace_id(), capacityId=after["capacity_id"]
+        )
+    elif action == "workspace.delete":
+        await bus.call("delete_workspace", workspaceId=workspace_id())
+    elif action == "folder.create":
+        result = await bus.call(
+            "create_folder", workspaceId=workspace_id(), displayName=after["name"]
+        )
+        return {"folder_id": result.get("id")} if isinstance(result, dict) else None
+    elif action == "folder.delete":
+        await bus.call("delete_folder", workspaceId=workspace_id(), folderId=meta["folder_id"])
+    elif action == "role.grant":
+        await bus.call(
+            "add_workspace_role",
+            workspaceId=workspace_id(),
+            principal={"id": meta["principal"], "type": after["type"]},
+            role=after["role"],
+        )
+    elif action == "role.update":
+        await bus.call(
+            "update_workspace_role",
+            workspaceId=workspace_id(),
+            roleAssignmentId=meta["assignment_id"],
+            role=after["role"],
+        )
+    elif action == "role.revoke":
+        await bus.call(
+            "delete_workspace_role",
+            workspaceId=workspace_id(),
+            roleAssignmentId=meta["assignment_id"],
+        )
+    else:
+        raise ValueError(f"apply() does not know how to perform {action!r}")
+    return None

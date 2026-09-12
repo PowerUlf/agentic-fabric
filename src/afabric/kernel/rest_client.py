@@ -105,6 +105,13 @@ class RestClient:
                 response = await self._client.get(f"/operations/{operation_id}/result")
                 if response.status_code == 204 or not response.content:
                     return None
+                # Operations that produce nothing (assignToCapacity) answer /result with
+                # an error rather than an empty body. That is success, not a failure —
+                # but any other error body must not be mistaken for a result.
+                if response.status_code >= 400:
+                    if "OperationHasNoResult" in response.text:
+                        return None
+                    raise FabricApiError(response.status_code, response.text, operation_id)
                 return response.json()
 
             if status == "Failed":

@@ -58,3 +58,13 @@ class Change(BaseModel):
 
     def summary(self) -> str:
         return f"{self.action} {self.target}"
+
+
+class Outcome(BaseModel):
+    """What happened when a change was applied."""
+
+    change: Change
+    ok: bool
+    detail: str | None = None
+    output: dict[str, Any] = Field(default_factory=dict)
+    """Whatever the tenant handed back that later changes may need, e.g. a new id."""

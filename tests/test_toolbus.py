@@ -1,9 +1,11 @@
 """Phase 1: the pure parts of the transport layer, tested without a tenant."""
 
+import asyncio
+
 import pytest
 
 from afabric.cli import _as_rows, _describe
-from afabric.kernel.toolbus import _fill
+from afabric.kernel.toolbus import ToolBus, _fill, _mcp_payload
 from afabric.kernel.tools import CATALOG, spec
 
 
@@ -23,6 +25,58 @@ class TestPathFilling:
         path, leftover = _fill("/workspaces", {"roleAssignments": True})
         assert path == "/workspaces"
         assert leftover == {"roleAssignments": True}
+
+
+class TestMcpPayload:
+    """Checked against the live Core MCP input schemas on 2026-09-10."""
+
+    def test_body_nested_under_details(self):
+        payload = _mcp_payload(
+            spec("update_workspace_role"),
+            {"workspaceId": "w1", "roleAssignmentId": "r1", "role": "Viewer"},
+        )
+        assert payload == {
+            "WorkspaceId": "w1",
+            "RoleAssignmentId": "r1",
+            "Details": {"role": "Viewer"},
+        }
+
+    def test_create_workspace_stays_flat(self):
+        payload = _mcp_payload(spec("create_workspace"), {"displayName": "x", "description": ""})
+        assert payload == {"displayName": "x", "description": ""}
+
+    def test_no_body_means_no_details_member(self):
+        payload = _mcp_payload(spec("delete_workspace"), {"workspaceId": "w1"})
+        assert payload == {"WorkspaceId": "w1"}
+
+    def test_reads_are_unchanged(self):
+        assert _mcp_payload(spec("list_workspaces"), {}) == {}
+
+
+class TestFallback:
+    class _Backend:
+        def __init__(self, name):
+            self.name, self.calls = name, []
+
+        async def call(self, tool, args):
+            self.calls.append(tool.name)
+            return self.name
+
+    def _bus(self):
+        mcp, rest = self._Backend("mcp"), self._Backend("rest")
+        return ToolBus(mcp, settings=None, fallback=rest), mcp, rest
+
+    def test_tool_without_mcp_counterpart_goes_over_rest(self):
+        bus, mcp, rest = self._bus()
+        assert (
+            asyncio.run(bus.call("assign_to_capacity", workspaceId="w", capacityId="c")) == "rest"
+        )
+        assert mcp.calls == []
+
+    def test_everything_else_stays_on_mcp(self):
+        bus, mcp, rest = self._bus()
+        assert asyncio.run(bus.call("list_workspaces")) == "mcp"
+        assert rest.calls == []
 
 
 class TestCatalog:
@@ -65,6 +119,7 @@ def _make_group(message, errors):
     try:
         return ExceptionGroup(message, errors)  # noqa: F821
     except NameError:
+
         class _Group(Exception):
             def __init__(self, msg, errs):
                 super().__init__(msg)

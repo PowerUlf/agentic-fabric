@@ -99,6 +99,19 @@ def test_policy_typo_is_caught(tmp_path, registry):
         load_desired(path, registry)
 
 
+def test_deny_rule_needs_a_field(tmp_path, registry):
+    path = _tree(tmp_path, "policy: {deny: [{}]}\n")
+    with pytest.raises(DesiredStateError, match="at least one of module, action, target"):
+        load_desired(path, registry)
+
+
+def test_deny_rule_rejects_module_vocabulary(tmp_path, registry):
+    # The kernel knows no workspaces; `workspace:` was the pre-phase-3 form.
+    path = _tree(tmp_path, "policy: {deny: [{workspace: 'Production*'}]}\n")
+    with pytest.raises(DesiredStateError, match="workspace"):
+        load_desired(path, registry)
+
+
 def test_policy_merges_across_files(tmp_path, registry):
     path = _tree(tmp_path, "policy: {max_blast_radius: 3}\n", late="policy: {prune: true}\n")
     policy = load_desired(path, registry).policy

@@ -17,6 +17,8 @@ sits next to the cache as plain JSON.
 
 from __future__ import annotations
 
+import base64
+import json
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -179,3 +181,20 @@ def acquire_token(settings: Settings, *, interactive: str | None = None) -> str:
                 ) from retry_exc
 
         raise AuthError(f"could not acquire a token for {settings.scope}: {exc}") from exc
+
+
+def principal_id(token: str) -> str | None:
+    """Read the caller's Entra object id (`oid`) from an access token.
+
+    The token is not verified here and does not need to be: it is our own, fresh from
+    Entra, and the id is only used to stop us revoking our own access. Anything that
+    does not parse yields None, and callers must treat None as "unknown", not "nobody".
+    """
+    try:
+        payload = token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(payload))
+    except (IndexError, ValueError):
+        return None
+    oid = claims.get("oid")
+    return str(oid) if oid else None

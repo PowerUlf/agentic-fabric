@@ -77,6 +77,12 @@ Found against the live server, absent from the docs, each one already handled:
   `mcp_args` map in the catalog translates; modules only ever write camelCase.
 - Both transports paginate. A tool missing `paged=True` truncates results **silently**,
   which is worse than an error.
+- Write tools take their body nested under `Details` — except `create_workspace`, which
+  takes it flat. `mcp_body` in the catalog records which; `_mcp_payload` does the shaping.
+- Not every REST operation has an MCP tool: `assignToCapacity` has none. Such tools carry
+  only `rest` and the ToolBus serves them over REST on either transport.
+- `list_folders` omits `parentFolderId` entirely for folders at the top level rather than
+  sending it as null, so "is a root folder" is tested by the field's *absence*.
 
 ## Authentication
 

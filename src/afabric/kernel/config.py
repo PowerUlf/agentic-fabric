@@ -62,7 +62,6 @@ class Settings(BaseSettings):
 
     # --- Kernel --------------------------------------------------------------
     journal_path: str = ".afabric/journal.jsonl"
-    max_blast_radius: int = 25
 
     module_path: str = ""
     """Extra directories holding modules, separated like $PATH.

@@ -42,7 +42,7 @@ class McpBackend:
 
         # Core MCP rejects a missing `arguments` member outright: passing None yields
         # "Invalid tool call params" even for tools that take no arguments at all.
-        payload = {tool.mcp_args.get(key, key): value for key, value in args.items()}
+        payload = _mcp_payload(tool, args)
 
         if not tool.paged:
             return unwrap(await self._session.call_tool(tool.mcp_tool, payload))
@@ -79,11 +79,38 @@ class RestBackend:
 
         if op.method != "GET":
             response = await self._client.request(op.method, path, json=leftover or None)
+            # 202 means the work continues server-side; the result only exists once the
+            # operation settles. Returning early would report success for a change that
+            # may still fail.
+            operation_id = response.headers.get("x-ms-operation-id")
+            if response.status_code == 202 and operation_id:
+                return await self._client.await_operation(operation_id)
             return response.json() if response.content else None
 
         if tool.paged:
             return await self._client.get_all(path, collection=tool.collection)
         return await self._client.get_one(path)
+
+
+def _mcp_payload(tool: ToolSpec, args: dict[str, Any]) -> dict[str, Any]:
+    """Shape canonical arguments the way this Core MCP tool wants them.
+
+    Arguments named in `mcp_args` are path parameters and get renamed; the rest are body
+    fields, nested under `mcp_body` when the tool expects that and flat otherwise.
+    """
+    payload: dict[str, Any] = {}
+    body: dict[str, Any] = {}
+    for key, value in args.items():
+        if key in tool.mcp_args:
+            payload[tool.mcp_args[key]] = value
+        else:
+            body[key] = value
+
+    if tool.mcp_body and body:
+        payload[tool.mcp_body] = body
+    else:
+        payload.update(body)
+    return payload
 
 
 def _fill(template: str, args: dict[str, Any]) -> tuple[str, dict[str, Any]]:
@@ -96,17 +123,32 @@ def _fill(template: str, args: dict[str, Any]) -> tuple[str, dict[str, Any]]:
 
 
 class ToolBus:
-    def __init__(self, backend: Backend, settings: Settings) -> None:
+    def __init__(
+        self,
+        backend: Backend,
+        settings: Settings,
+        *,
+        fallback: Backend | None = None,
+        identity: str | None = None,
+    ) -> None:
         self._backend = backend
+        self._fallback = fallback
         self._settings = settings
         self._capabilities: dict[str, Any] = {}
+        self.identity = identity
+        """Entra object id of whoever this bus acts as, when the token reveals it."""
 
     @property
     def transport(self) -> Transport:
         return Transport(self._backend.name)
 
     async def call(self, tool_name: str, **args: Any) -> Any:
-        return await self._backend.call(spec(tool_name), args)
+        tool = spec(tool_name)
+        # A tool Core MCP does not offer is served over REST with the same identity.
+        # Callers never see which one answered.
+        if self._backend.name == "mcp" and not tool.mcp_tool and self._fallback is not None:
+            return await self._fallback.call(tool, args)
+        return await self._backend.call(tool, args)
 
     # --- capabilities ---------------------------------------------------------
 

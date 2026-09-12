@@ -11,9 +11,9 @@ policy:
   # Destructive changes always need approval; these need it too.
   require_approval:
     - workspace.update
-  # Never touch anything matching these, whatever the desired state says.
+  # Never apply a change matching every field of a rule (globs over module, action, target).
   deny:
-    - workspace: "Production*"
+    - target: "Production*"
 
 # --- module: workspace --------------------------------------------------------
 workspaces:

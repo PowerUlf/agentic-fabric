@@ -10,6 +10,13 @@ Two things differ between the transports and are reconciled here, not by callers
 - **Pagination.** Both transports page, with a `ContinuationToken` argument and a
   `continuationToken` in the response. `paged` says which tools need the loop; getting
   this wrong truncates results silently, which is worse than an error.
+- **Request bodies.** Canonical arguments follow REST: path parameters plus flat body
+  fields. Most Core MCP write tools want the body nested under `Details`, but not all —
+  `create_workspace` takes it flat. `mcp_body` records which.
+
+Some operations have no Core MCP tool at all (assigning a capacity to an existing
+workspace). Those carry only `rest`, and the ToolBus serves them over REST whatever the
+configured transport — the gap-filling native tools ADR 0001 anticipates.
 """
 
 from __future__ import annotations
@@ -41,6 +48,12 @@ class ToolSpec:
 
     collection: str = "value"
     """Response key holding the result list. Only meaningful when `paged`."""
+
+    mcp_body: str | None = None
+    """Core MCP key under which non-path arguments are nested, e.g. `Details`.
+
+    Path arguments are exactly those named in `mcp_args`; everything else is body.
+    """
 
 
 _WORKSPACE_ID = {"workspaceId": "WorkspaceId"}
@@ -90,6 +103,73 @@ CATALOG: dict[str, ToolSpec] = {
         rest=RestOp("GET", "/workspaces/{workspaceId}/roleAssignments"),
         mcp_args=_WORKSPACE_ID,
         paged=True,
+    ),
+    # --- writes ---------------------------------------------------------------
+    "create_workspace": ToolSpec(
+        name="create_workspace",
+        description="Create a workspace, optionally on a capacity.",
+        mcp_tool="create_workspace",
+        rest=RestOp("POST", "/workspaces"),
+        # Flat in MCP too: displayName, description, capacityId.
+    ),
+    "update_workspace": ToolSpec(
+        name="update_workspace",
+        description="Change a workspace's display name or description.",
+        mcp_tool="update_workspace",
+        rest=RestOp("PATCH", "/workspaces/{workspaceId}"),
+        mcp_args=_WORKSPACE_ID,
+        mcp_body="Details",
+    ),
+    "delete_workspace": ToolSpec(
+        name="delete_workspace",
+        description="Delete a workspace and everything in it.",
+        mcp_tool="delete_workspace",
+        rest=RestOp("DELETE", "/workspaces/{workspaceId}"),
+        mcp_args=_WORKSPACE_ID,
+    ),
+    "assign_to_capacity": ToolSpec(
+        name="assign_to_capacity",
+        description="Move an existing workspace onto a capacity.",
+        rest=RestOp("POST", "/workspaces/{workspaceId}/assignToCapacity"),
+        # No Core MCP tool exists for this; served over REST on every transport.
+    ),
+    "create_folder": ToolSpec(
+        name="create_folder",
+        description="Create a folder in a workspace.",
+        mcp_tool="create_folder",
+        rest=RestOp("POST", "/workspaces/{workspaceId}/folders"),
+        mcp_args=_WORKSPACE_ID,
+        mcp_body="Details",
+    ),
+    "delete_folder": ToolSpec(
+        name="delete_folder",
+        description="Delete an empty folder.",
+        mcp_tool="delete_folder",
+        rest=RestOp("DELETE", "/workspaces/{workspaceId}/folders/{folderId}"),
+        mcp_args=_WORKSPACE_ID | {"folderId": "FolderId"},
+    ),
+    "add_workspace_role": ToolSpec(
+        name="add_workspace_role",
+        description="Grant a principal a role on a workspace.",
+        mcp_tool="add_workspace_role",
+        rest=RestOp("POST", "/workspaces/{workspaceId}/roleAssignments"),
+        mcp_args=_WORKSPACE_ID,
+        mcp_body="Details",
+    ),
+    "update_workspace_role": ToolSpec(
+        name="update_workspace_role",
+        description="Change the role of an existing assignment.",
+        mcp_tool="update_workspace_role",
+        rest=RestOp("PATCH", "/workspaces/{workspaceId}/roleAssignments/{roleAssignmentId}"),
+        mcp_args=_WORKSPACE_ID | {"roleAssignmentId": "RoleAssignmentId"},
+        mcp_body="Details",
+    ),
+    "delete_workspace_role": ToolSpec(
+        name="delete_workspace_role",
+        description="Revoke a role assignment.",
+        mcp_tool="delete_workspace_role",
+        rest=RestOp("DELETE", "/workspaces/{workspaceId}/roleAssignments/{roleAssignmentId}"),
+        mcp_args=_WORKSPACE_ID | {"roleAssignmentId": "RoleAssignmentId"},
     ),
 }
 

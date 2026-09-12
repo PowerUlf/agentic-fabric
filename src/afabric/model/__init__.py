@@ -1,3 +1,3 @@
-from afabric.model.change import Change, Risk
+from afabric.model.change import Change, Outcome, Risk
 
-__all__ = ["Change", "Risk"]
+__all__ = ["Change", "Outcome", "Risk"]

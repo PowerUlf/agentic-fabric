@@ -1,6 +1,6 @@
-# TODO — Phase 3: Plan und Apply mit Guardrails
+# TODO — Phase 4: Agent-Loop
 
-Stand 2026-09-10. Phase 0, 1 und 2 sind fertig, committet und gepusht.
+Stand 2026-09-12. Phase 0 bis 3 sind fertig, committet und gepusht.
 Plan: `docs/plan.md` (lokal, nicht im Repo)
 
 ## Wieder reinkommen
@@ -9,59 +9,66 @@ Plan: `docs/plan.md` (lokal, nicht im Repo)
 cd ~/omarchy/agentic-fabric
 .venv/bin/afab status             # muss faf_dev zeigen, ohne Login
 .venv/bin/afab modules            # workspace, keine Probleme
-.venv/bin/pytest -q               # 57 grün
+.venv/bin/pytest -q               # 94 grün
+.venv/bin/afab plan -f examples/fabric.yaml   # liest nur, ändert nichts
 ```
 
-## Vor dem ersten Schreibzugriff
+## Was Phase 3 am 2026-09-12 live bewiesen hat
 
-- [x] **Capacity `capfabricf4` fortsetzen.** Am 2026-09-10 wieder gestartet, `Active`.
-      Pausiert sie erneut, scheitern Anlegen und Zuweisen darauf — vor Schreibläufen
-      mit `afab status` prüfen.
-- [ ] Einen **Wegwerf-Workspace** für die E2E-Verifikation festlegen, nicht `faf_dev`.
+Verifiziert gegen den echten Tenant, beide Transporte, mit einem Wegwerf-Workspace
+`faf_e2e_scratch`, der am Ende wieder gelöscht wurde:
 
-## Reihenfolge
+- `plan` über `mcp` und `rest` liefert identische Pläne
+- `apply` legt Workspace und Ordner an; `plan` danach leer (Idempotenz live)
+- Drift (Beschreibung geändert, Ordner ergänzt) wird genau als solche geplant und
+  angewendet, danach `plan` wieder leer
+- `--yes` allein gibt einen destruktiven Change **nicht** frei: Exit 1,
+  „Nothing approved, nothing applied", Workspace stand danach noch
+- `deny`-Regeln greifen live: `faf_dev` und `afab_e2e` kamen als `denied` heraus,
+  auch mit `--approve-destructive`
+- **Die Selbstschutz-Sperre greift:** `prune: true` gegen `faf_dev` plant
+  `role.revoke` für die eigene Admin-Rolle, Policy antwortet
+  „would change your own access; refused regardless of policy". Die `oid` kommt also
+  aus dem Token an.
+- Journal: pro Lauf eine eigene Run-ID, je Change `planned` → `approved` → `applied`,
+  neue Workspace- und Ordner-IDs stehen in `output`
 
-### 1. `kernel/policy.py`
-- [ ] `DESTRUCTIVE` braucht immer Freigabe, `require_approval` zusätzlich pro Verb
-- [ ] `max_blast_radius`: Lauf mit mehr Changes ablehnen, nicht kürzen
-- [ ] `deny`-Muster auswerten — Form im Beispiel ist `{workspace: "Production*"}`,
-      der Kernel kennt aber keine Workspaces. Muster gegen `Change.target` statt
-      gegen modul-spezifische Felder?
-- [ ] **Eigene Identität nie entziehen.** Live belegt: mit `prune: true` plant das
-      Workspace-Modul `role.revoke` für die Admin-Rolle des angemeldeten Nutzers —
-      die einzige Rolle auf `faf_dev`. Harte Sperre im Kernel, unabhängig vom YAML.
-      Braucht die Object-ID des Aufrufers (aus dem Token-Claim `oid`).
-- [ ] Doppelte Einstellung auflösen: `max_blast_radius` gibt es in `Settings` (env)
-      und in `policy` (YAML). Eine Quelle.
+Erledigte Altlasten aus Phase 3:
 
-### 2. `kernel/journal.py`
-- [ ] Append-only JSONL, ein Eintrag pro geplantem und pro ausgeführtem Change
+- **Ordner-Antwortform geklärt.** `list_folders` liefert für Ordner auf oberster Ebene
+  `id`, `displayName`, `workspaceId` — **kein** `parentFolderId`. Der Filter in
+  `observe()` ist damit richtig, greift aber über die *Abwesenheit* des Felds.
+- **Katalog gegen `list_tools` geprüft** (2026-09-10): alle Write-Tools existieren,
+  `create_workspace` nimmt die Felder flach, alle anderen unter `Details`.
+- **Capacity `capfabricf4`** war während der Verifikation `Active`.
 
-### 3. `workspace/process.py` — `apply()`
-- [ ] Reihenfolge: Workspace anlegen vor Ordnern und Rollen darin; die `planned:`-IDs
-      aus `project()` durch echte ersetzen
-- [ ] Neue Tools im Katalog: `create_workspace`, `update_workspace`,
-      `assign_to_capacity`, `create_folder`, `delete_folder`, `add/update/delete_workspace_role`,
-      `delete_workspace` — Argumentnamen am Live-Server prüfen (`list_tools`), MCP
-      nimmt hier `Details`-Objekte
-- [ ] LRO-Polling für die Operationen, die eines zurückgeben
+## Vor dem nächsten Schreiblauf
 
-### 4. CLI
-- [ ] `afab plan [--file fabric.yaml]` — Discovery, Laden, `observe`, `plan`, farbige Tabelle
-- [ ] `afab apply` — gleicher Plan, Policy, Freigabe, `apply`, Journal
-- [ ] Vor `plan`: `registry.ok` prüfen, bei Modulproblemen abbrechen
+- [ ] `afab status` prüfen: pausiert `capfabricf4`, scheitern Anlegen und Zuweisen
+- [ ] Für Schreibtests wieder einen Wegwerf-Workspace nehmen, nie `faf_dev`.
+      Die YAMLs von Phase 3 liegen unter `.afabric/e2e/` (gitignored, lokal).
 
-### 5. Verifikation (aus dem Plan)
-- [ ] Wegwerf-Workspace anlegen → `plan` leer → YAML ändern → `plan` zeigt genau die
-      Änderung → `apply` → `plan` wieder leer
-- [ ] Löschen ohne Freigabe muss blockiert werden
+## Phase 4 — Agent-Loop
 
-## Ungeprüft gegen den echten Tenant
+`agent.py` mit der Anthropic Messages API und dem ToolBus als Tools, zwei Fähigkeiten:
 
-- **Ordner-Antwortform.** `faf_dev` hat keine Ordner, `parentFolderId` in `observe()`
-  ist aus der Doku übernommen. Beim ersten `folder.create` in Phase 3 prüfen.
+- [ ] `afab explain` — beobachtete Drift in Prosa erklären, samt Ursachenvermutung
+- [ ] Intent in natürlicher Sprache („neue Dev-Umgebung für Team Vertrieb") wird zu
+      einem `fabric.yaml`-Vorschlag, den der Nutzer prüft
+- [ ] Der Agent schlägt nur vor. Angewendet wird weiter über `runner.plan`/`runner.apply`
+      aus Phase 3, mit Policy, Freigabe und Journal.
+
+*Verifikation:* Drift von Hand im Fabric-Portal erzeugen, `afab explain` muss sie
+korrekt benennen.
 
 ## Offen, ohne Eile
 
+- [ ] `_create` plant `role.grant` auch für die eigene Identität. Fabric macht den
+      Ersteller automatisch zum Admin, ein solcher Grant würde beim Anlegen scheitern.
+      In Phase 3 umgangen, indem die E2E-YAML keine eigene Rolle deklariert.
+- [ ] LRO über MCP ungetestet: `RestBackend` wartet bei 202 auf die Operation,
+      `McpBackend` nicht. Keine der Workspace- und Ordner-Operationen kam bisher
+      asynchron zurück. Der MCP-Server bietet `get_operation_state`/`get_operation_result`,
+      falls es nötig wird.
 - [ ] Principal-IDs vs. E-Mail — Graph MCP Server, später
 - [ ] Service Principal für den unbeaufsichtigten REST-Pfad — Phase 5

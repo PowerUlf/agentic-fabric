@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import sys
+from pathlib import Path
 from typing import Annotated, Any
 
 import typer
@@ -10,10 +12,14 @@ from rich.console import Console
 from rich.table import Table
 
 from afabric import __version__
+from afabric.kernel import runner
 from afabric.kernel.auth import AuthError, forget
 from afabric.kernel.config import Transport, load_settings
+from afabric.kernel.desired import DesiredStateError, load_desired
+from afabric.kernel.journal import Journal
 from afabric.kernel.modules import discover
 from afabric.kernel.session import connect
+from afabric.model.change import Risk
 
 app = typer.Typer(
     name="afab",
@@ -164,16 +170,199 @@ def modules() -> None:
         raise typer.Exit(1)
 
 
-@app.command()
-def plan() -> None:
-    """Diff the desired state in fabric.yaml against the tenant."""
-    console.print(f"plan: {_NOT_YET} (phase 2)")
+FileOption = Annotated[
+    Path, typer.Option("--file", "-f", help="Desired state file; fabric.d/ beside it is read too.")
+]
+TransportOption = Annotated[
+    Transport | None,
+    typer.Option("--transport", "-t", help="Override the configured transport."),
+]
+
+_RISK_STYLE = {Risk.SAFE: "green", Risk.REVERSIBLE: "yellow", Risk.DESTRUCTIVE: "red bold"}
 
 
 @app.command()
-def apply() -> None:
-    """Apply a plan, after policy checks and approval."""
-    console.print(f"apply: {_NOT_YET} (phase 3)")
+def plan(
+    file: FileOption = Path("fabric.yaml"),
+    transport: TransportOption = None,
+) -> None:
+    """Show what applying the desired state would change. Changes nothing."""
+    _run(file, transport, apply_changes=False, yes=False, approve_destructive=False)
+
+
+@app.command()
+def apply(
+    file: FileOption = Path("fabric.yaml"),
+    transport: TransportOption = None,
+    yes: Annotated[
+        bool, typer.Option("--yes", "-y", help="Approve changes policy does not gate.")
+    ] = False,
+    approve_destructive: Annotated[
+        bool,
+        typer.Option(
+            "--approve-destructive",
+            help="Also approve changes policy gates. Denied changes stay denied.",
+        ),
+    ] = False,
+) -> None:
+    """Plan, check policy, ask for approval, and apply."""
+    _run(file, transport, apply_changes=True, yes=yes, approve_destructive=approve_destructive)
+
+
+def _run(
+    file: Path,
+    transport: Transport | None,
+    *,
+    apply_changes: bool,
+    yes: bool,
+    approve_destructive: bool,
+) -> None:
+    settings = load_settings()
+    registry = discover(settings.module_dirs)
+    if not registry.ok:
+        console.print("[red bold]modules have problems — run `afab modules`[/]")
+        raise typer.Exit(1)
+
+    try:
+        desired = load_desired(file, registry)
+    except DesiredStateError as exc:
+        console.print(f"[red bold]{len(exc.problems)} problem(s) in the desired state[/]")
+        for problem in exc.problems:
+            console.print(f"  [red]•[/] {problem}")
+        raise typer.Exit(1) from exc
+
+    journal = Journal(settings.journal_path)
+    try:
+        code = asyncio.run(
+            _session(
+                settings,
+                registry,
+                desired,
+                journal,
+                transport or settings.transport,
+                apply_changes=apply_changes,
+                yes=yes,
+                approve_destructive=approve_destructive,
+            )
+        )
+    except AuthError as exc:
+        console.print(f"[red]sign-in failed:[/] {exc}")
+        raise typer.Exit(1) from exc
+    except Exception as exc:
+        for line in _describe(exc):
+            console.print(f"[red]{line}[/]")
+        raise typer.Exit(1) from exc
+    raise typer.Exit(code)
+
+
+async def _session(
+    settings, registry, desired, journal, transport, *, apply_changes, yes, approve_destructive
+) -> int:
+    async with connect(settings, transport=transport) as bus:
+        run = await runner.plan(bus, registry, desired, journal)
+        _render_plan(run.evaluation, transport)
+
+        if run.evaluation.refused:
+            console.print(f"\n[red bold]refused:[/] {run.evaluation.refused}")
+            return 1
+        if not run.changes:
+            console.print("\n[green]No changes.[/] The tenant matches the desired state.")
+            return 0
+        if not apply_changes:
+            console.print("\n[dim]Nothing was changed. `afab apply` applies this plan.[/]")
+            return 0
+
+        approved = _approve(run.evaluation, yes=yes, approve_destructive=approve_destructive)
+        if not approved:
+            console.print("\n[yellow]Nothing approved, nothing applied.[/]")
+            return 1
+
+        outcomes = await runner.apply(bus, registry, approved, journal)
+        _render_outcomes(outcomes, approved)
+        complete = len(outcomes) == len(approved) and all(o.ok for o in outcomes)
+        return 0 if complete else 1
+
+
+def _approve(evaluation, *, yes: bool, approve_destructive: bool) -> list:
+    interactive = sys.stdin.isatty()
+    chosen: set[int] = set()
+
+    allowed = evaluation.allowed
+    if allowed:
+        if yes or (interactive and typer.confirm(f"\nApply {len(allowed)} ungated change(s)?")):
+            chosen.update(id(v.change) for v in allowed)
+        elif not interactive:
+            console.print(f"[yellow]{len(allowed)} ungated change(s) need --yes[/]")
+
+    for verdict in evaluation.gated:
+        change = verdict.change
+        label = f"{change.action} {change.target} ({'; '.join(verdict.reasons)})"
+        if approve_destructive:
+            chosen.add(id(change))
+        elif interactive and typer.confirm(f"Approve {label}?", default=False):
+            chosen.add(id(change))
+        else:
+            console.print(f"[red]blocked:[/] {label} — needs explicit approval")
+
+    for verdict in evaluation.denied:
+        console.print(
+            f"[red]denied:[/] {verdict.change.action} {verdict.change.target} "
+            f"({'; '.join(verdict.reasons)})"
+        )
+
+    # Plan order, not approval order: later changes depend on earlier ones.
+    return [v.change for v in evaluation.verdicts if id(v.change) in chosen]
+
+
+def _render_plan(evaluation, transport: Transport) -> None:
+    console.print(f"[dim]transport:[/] {transport.value}")
+    verdicts = evaluation.verdicts
+    if not verdicts:
+        return
+
+    table = Table(title=f"Plan ({len(verdicts)})", title_justify="left", header_style="bold")
+    for column in ("Risk", "Action", "Target", "Change", "Policy"):
+        table.add_column(column, overflow="fold")
+    for verdict in verdicts:
+        change = verdict.change
+        if verdict.denied:
+            policy = f"[red]denied[/] — {'; '.join(verdict.reasons)}"
+        elif verdict.needs_approval:
+            policy = f"[yellow]approval[/] — {'; '.join(verdict.reasons)}"
+        else:
+            policy = "[green]ok[/]"
+        table.add_row(
+            f"[{_RISK_STYLE[change.risk]}]{change.risk.value}[/]",
+            change.action,
+            change.target,
+            _delta(change),
+            policy,
+        )
+    console.print()
+    console.print(table)
+    console.print(
+        f"{len(evaluation.allowed)} ok · {len(evaluation.gated)} need approval · "
+        f"{len(evaluation.denied)} denied"
+    )
+
+
+def _delta(change) -> str:
+    before, after = change.before or {}, change.after or {}
+    keys = [k for k in {**before, **after} if before.get(k) != after.get(k)]
+    if not keys:
+        return ""
+    return ", ".join(f"{k}: {before.get(k, '—')} → {after.get(k, '—')}" for k in keys)
+
+
+def _render_outcomes(outcomes, approved) -> None:
+    console.print()
+    for outcome in outcomes:
+        mark = "[green]✓[/]" if outcome.ok else "[red]✗[/]"
+        tail = f" — {outcome.detail}" if outcome.detail else ""
+        console.print(f"{mark} {outcome.change.action} {outcome.change.target}{tail}")
+    skipped = len(approved) - len(outcomes)
+    if skipped:
+        console.print(f"[yellow]{skipped} change(s) not attempted after the failure[/]")
 
 
 @app.command()
