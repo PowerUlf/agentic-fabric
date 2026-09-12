@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 from pathlib import Path
 from typing import Annotated, Any
@@ -28,8 +29,6 @@ app = typer.Typer(
     add_completion=False,
 )
 console = Console()
-
-_NOT_YET = "[yellow]not implemented yet[/] — see docs/architecture.md"
 
 
 @app.command()
@@ -217,20 +216,7 @@ def _run(
     yes: bool,
     approve_destructive: bool,
 ) -> None:
-    settings = load_settings()
-    registry = discover(settings.module_dirs)
-    if not registry.ok:
-        console.print("[red bold]modules have problems — run `afab modules`[/]")
-        raise typer.Exit(1)
-
-    try:
-        desired = load_desired(file, registry)
-    except DesiredStateError as exc:
-        console.print(f"[red bold]{len(exc.problems)} problem(s) in the desired state[/]")
-        for problem in exc.problems:
-            console.print(f"  [red]•[/] {problem}")
-        raise typer.Exit(1) from exc
-
+    settings, registry, desired = _load(file)
     journal = Journal(settings.journal_path)
     try:
         code = asyncio.run(
@@ -365,10 +351,90 @@ def _render_outcomes(outcomes, approved) -> None:
         console.print(f"[yellow]{skipped} change(s) not attempted after the failure[/]")
 
 
+def _load(file: Path):
+    """Settings, modules and desired state, or exit with what is wrong with them."""
+    settings = load_settings()
+    registry = discover(settings.module_dirs)
+    if not registry.ok:
+        console.print("[red bold]modules have problems — run `afab modules`[/]")
+        raise typer.Exit(1)
+
+    try:
+        desired = load_desired(file, registry)
+    except DesiredStateError as exc:
+        console.print(f"[red bold]{len(exc.problems)} problem(s) in the desired state[/]")
+        for problem in exc.problems:
+            console.print(f"  [red]•[/] {problem}")
+        raise typer.Exit(1) from exc
+    return settings, registry, desired
+
+
 @app.command()
-def explain() -> None:
-    """Have an agent explain the drift it observes."""
-    console.print(f"explain: {_NOT_YET} (phase 4)")
+def explain(
+    file: FileOption = Path("fabric.yaml"),
+    transport: TransportOption = None,
+) -> None:
+    """Have an agent explain the drift it observes. Changes nothing."""
+    from afabric.kernel.agent import AgentError
+
+    settings, registry, desired = _load(file)
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        # Claude Code ranks an API key above a plan login and always uses it headless.
+        console.print(
+            "[yellow]ANTHROPIC_API_KEY is set — the agent bills that key, not your Claude "
+            "plan. Unset it to use the plan.[/]"
+        )
+    journal = Journal(settings.journal_path)
+    try:
+        code = asyncio.run(
+            _explain_session(settings, registry, desired, journal, transport or settings.transport)
+        )
+    except AuthError as exc:
+        console.print(f"[red]sign-in failed:[/] {exc}")
+        raise typer.Exit(1) from exc
+    except AgentError as exc:
+        console.print(f"[red]the agent failed:[/] {exc}")
+        console.print(
+            "[dim]Not signed in? Run `claude` once and log in with your Claude plan, "
+            "or set CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`.[/]"
+        )
+        raise typer.Exit(1) from exc
+    except Exception as exc:
+        for line in _describe(exc):
+            console.print(f"[red]{line}[/]")
+        raise typer.Exit(1) from exc
+    raise typer.Exit(code)
+
+
+async def _explain_session(settings, registry, desired, journal, transport) -> int:
+    from afabric.kernel import agent
+
+    async with connect(settings, transport=transport) as bus:
+        run = await runner.plan(bus, registry, desired, journal)
+        _render_plan(run.evaluation, transport)
+        if not run.changes:
+            console.print("\n[green]No drift.[/] The tenant matches the desired state.")
+            return 0
+
+        # A refused run still gets explained: explaining changes nothing.
+        with console.status(f"explaining with {settings.model}…"):
+            result = await agent.explain(
+                bus, run.changes, settings.journal_path, model=settings.model
+            )
+
+    journal.record(
+        "explained",
+        model=settings.model,
+        turns=result.turns,
+        tool_calls=result.tool_calls,
+        cost_usd=result.cost_usd,
+        text=result.text,
+    )
+    console.print()
+    console.print(result.text)
+    tools = ", ".join(result.tool_calls) or "—"
+    console.print(f"\n[dim]{result.turns} turn(s) · tools: {tools}[/]")
+    return 0
 
 
 if __name__ == "__main__":

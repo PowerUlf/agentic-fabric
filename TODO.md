@@ -55,7 +55,25 @@ Erledigte Altlasten aus Phase 3:
 
 `agent.py` mit der Anthropic Messages API und dem ToolBus als Tools, zwei Fähigkeiten:
 
-- [ ] `afab explain` — beobachtete Drift in Prosa erklären, samt Ursachenvermutung
+- [x] `afab explain` — beobachtete Drift in Prosa erklären, samt Ursachenvermutung.
+      Code + Unit-Tests stehen (`kernel/agent.py`, `tests/test_agent.py`): Drift kommt
+      aus `runner.plan`, der Agent liest nur (GET-Tools aus dem Katalog + `read_journal`),
+      Ergebnis landet als `explained` im Journal.
+      **Live verifiziert 2026-09-12** auf dem Mac, beide Transporte, Wegwerf-Workspace
+      `faf_e2e_scratch` (danach per Prune gelöscht): ohne Drift kein Modellaufruf;
+      Beschreibung geändert + Ordner `Silver` gelöscht → beide Abweichungen genau
+      benannt, Ursache aus Journal-Zeitstempeln hergeleitet. 4–5 Turns, ca. $0.10 je Lauf
+      (Schätzwert, aus dem Max-Abo). Offene Feinheiten, ohne Eile:
+      - Der Agent nennt Ursachen „confirmed, not a guess", obwohl das Journal nur zeigt,
+        dass afab es *nicht* war. Systemprompt schärfen.
+      - Über REST schweifte er zu alten Prune-Läufen ab — nicht Teil der Changes.
+      - Antwort kommt auf Englisch; ggf. Sprache konfigurierbar machen.
+      - Auf dem Mac liegt die venv unter `~/.venvs/agentic-fabric`
+        (`UV_PROJECT_ENVIRONMENT`), die Repo-`.venv` gehört der VM.
+      Läuft auf dem **Claude Agent SDK** mit dem Max-Abo, nicht auf einem API-Key:
+      in der VM einmal `claude` starten und mit dem Abo anmelden (oder
+      `CLAUDE_CODE_OAUTH_TOKEN` aus `claude setup-token`). `ANTHROPIC_API_KEY` darf
+      **nicht** gesetzt sein, sonst rechnet das SDK über den Key ab. Modell: `AFABRIC_MODEL`.
 - [ ] Intent in natürlicher Sprache („neue Dev-Umgebung für Team Vertrieb") wird zu
       einem `fabric.yaml`-Vorschlag, den der Nutzer prüft
 - [ ] Der Agent schlägt nur vor. Angewendet wird weiter über `runner.plan`/`runner.apply`
@@ -81,5 +99,9 @@ korrekt benennen.
       als „Operation ohne Ergebnis". Kein Aufruf in Phase 3 kam asynchron zurück, der
       Code ist also nie gelaufen. Fällt im Zweifel sicher aus: ein unerwarteter Fehler
       fliegt, statt als Ergebnis durchzugehen.
+- [ ] **GET-Argumente außerhalb des Pfads gehen über REST verloren.** `RestBackend.call`
+      wirft `leftover` bei GET weg, `list_items(type=...)` liefert über `-t rest` also
+      ungefiltert, über MCP gefiltert. Der Agent bietet `type` deshalb nicht an. Fix:
+      `leftover` als Query-Parameter senden (Namen je Tool prüfen).
 - [ ] Principal-IDs vs. E-Mail — Graph MCP Server, später
 - [ ] Service Principal für den unbeaufsichtigten REST-Pfad — Phase 5

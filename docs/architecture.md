@@ -31,7 +31,7 @@ pipelines — only of tools, policy, journal and the agent loop.
 | `toolbus.py` | tool registry; picks the MCP or REST backend per call |
 | `policy.py` | guardrails: deny rules, blast radius, dry-run |
 | `journal.py` | append-only JSONL audit of every planned and applied change |
-| `agent.py` | the agent loop (Anthropic Messages API) over the ToolBus |
+| `agent.py` | the agent loop (Claude Agent SDK) over read-only ToolBus tools |
 
 ## The module contract
 

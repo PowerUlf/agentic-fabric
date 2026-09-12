@@ -8,8 +8,9 @@ license = { text = "MIT" }
 authors = [{ name = "PowerUlf" }]
 
 dependencies = [
-    "anthropic>=0.40",
     "azure-identity>=1.19",
+    # Runs on a Claude plan login as well as an API key; bundles the Claude Code CLI.
+    "claude-agent-sdk>=0.2.152",
     "httpx>=0.27",
     "mcp>=1.2",
     "pydantic>=2.9",
