@@ -6,9 +6,11 @@ Agents that **operate the Fabric platform itself** — reconcile workspaces agai
 declared desired state, watch job health, deploy items, audit governance — rather than
 only answering questions about the data inside it.
 
-> Status: early. Phases 0–2 are done: `afab status` talks to a live tenant over both
-> transports, modules are discovered from directories, and the workspace module plans
-> changes against a declared state. Applying them starts at phase 3.
+> Status: early, but it runs against a live tenant. `afab plan` and `afab apply`
+> reconcile workspaces, folders and roles behind policy, approval and an audit journal.
+> `afab explain` has an agent explain observed drift, `afab propose` turns an intent in
+> plain language into a `fabric.d/` fragment for you to review. Both only ever read —
+> `afab apply` remains the one thing that changes the tenant. Next: more modules.
 
 ## Why this exists
 
@@ -80,7 +82,18 @@ mise install          # pins Python 3.12 — the Fabric tools reject 3.13+
 uv sync --extra dev
 cp .env.example .env  # fill in, or use the interactive MCP transport
 afab --help
+
+afab status                                   # what the tenant holds
+afab plan                                     # what applying fabric.yaml would change
+afab apply                                    # apply it, behind policy and approval
+afab explain                                  # have an agent explain the drift
+afab propose "a dev environment for sales"    # intent -> a fabric.d/ fragment
 ```
+
+The two agent commands run on the [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview),
+which signs in the way Claude Code does: a Claude plan login, or `CLAUDE_CODE_OAUTH_TOKEN`
+from `claude setup-token` on a headless machine. An `ANTHROPIC_API_KEY` in the
+environment outranks both and is billed per use.
 
 ## Documentation
 

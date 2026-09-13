@@ -351,6 +351,132 @@ def _render_outcomes(outcomes, approved) -> None:
         console.print(f"[yellow]{skipped} change(s) not attempted after the failure[/]")
 
 
+@app.command()
+def propose(
+    intent: Annotated[str, typer.Argument(help="What you want, in plain language.")],
+    file: FileOption = Path("fabric.yaml"),
+    out: Annotated[
+        Path | None,
+        typer.Option("--out", "-o", help="Write the fragment here. Shown only without this."),
+    ] = None,
+    transport: TransportOption = None,
+) -> None:
+    """Turn an intent into a fabric.d/ fragment, and show what applying it would do."""
+    from afabric.kernel.agent import AgentError
+
+    settings = load_settings()
+    registry = discover(settings.module_dirs)
+    if not registry.ok:
+        console.print("[red bold]modules have problems — run `afab modules`[/]")
+        raise typer.Exit(1)
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        console.print(
+            "[yellow]ANTHROPIC_API_KEY is set — the agent bills that key, not your Claude "
+            "plan. Unset it to use the plan.[/]"
+        )
+
+    journal = Journal(settings.journal_path)
+    try:
+        code = asyncio.run(
+            _propose_session(
+                settings, registry, journal, intent, file, out, transport or settings.transport
+            )
+        )
+    except AuthError as exc:
+        console.print(f"[red]sign-in failed:[/] {exc}")
+        raise typer.Exit(1) from exc
+    except AgentError as exc:
+        console.print(f"[red]the agent failed:[/] {exc}")
+        raise typer.Exit(1) from exc
+    except Exception as exc:
+        for line in _describe(exc):
+            console.print(f"[red]{line}[/]")
+        raise typer.Exit(1) from exc
+    raise typer.Exit(code)
+
+
+async def _propose_session(settings, registry, journal, intent, file, out, transport) -> int:
+    from rich.syntax import Syntax
+
+    from afabric.kernel import agent
+
+    async with connect(settings, transport=transport) as bus:
+        with console.status(f"drafting with {settings.model}…"):
+            proposal = await agent.propose(
+                bus, registry, intent, model=settings.model, language=settings.language
+            )
+
+        console.print(f"\n[bold]fabric.d/{proposal.filename}[/]")
+        console.print(Syntax(proposal.yaml, "yaml", background_color="default"))
+        if proposal.note:
+            console.print()
+            console.print(proposal.note)
+
+        await _preview(bus, registry, file, proposal, transport)
+
+    journal.record(
+        "proposed",
+        intent=intent,
+        filename=proposal.filename,
+        yaml=proposal.yaml,
+        note=proposal.note,
+        turns=proposal.turns,
+        cost_usd=proposal.cost_usd,
+    )
+
+    if out is not None:
+        if out.exists() and not typer.confirm(f"\n{out} exists. Overwrite?", default=False):
+            console.print("[yellow]not written[/]")
+            return 1
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(proposal.yaml, encoding="utf-8")
+        console.print(f"\n[green]written:[/] {out}")
+    else:
+        console.print(
+            f"\n[dim]Nothing was written. `afab propose … -o fabric.d/{proposal.filename}` "
+            "saves it.[/]"
+        )
+    return 0
+
+
+async def _preview(bus, registry, file: Path, proposal, transport) -> None:
+    """Plan the fragment on top of the existing cascade, in a throwaway copy of it."""
+    import shutil
+    import tempfile
+
+    if not file.is_file():
+        console.print(f"\n[dim]{file} does not exist — no plan preview.[/]")
+        return
+
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        shutil.copy(file, root / "fabric.yaml")
+        cascade = root / "fabric.d"
+        cascade.mkdir()
+        source = file.parent / "fabric.d"
+        if source.is_dir():
+            for fragment in source.glob("*.y*ml"):
+                shutil.copy(fragment, cascade / fragment.name)
+        (cascade / proposal.filename).write_text(proposal.yaml, encoding="utf-8")
+
+        try:
+            desired = load_desired(root / "fabric.yaml", registry)
+        except DesiredStateError as exc:
+            console.print("\n[red bold]the fragment does not merge with the existing state[/]")
+            for problem in exc.problems:
+                console.print(f"  [red]•[/] {problem}")
+            return
+
+        # Its own journal, thrown away with the copy: a preview of a fragment nobody
+        # accepted yet is not history.
+        console.print("\n[bold]With this fragment, `afab plan` would do:[/]")
+        run = await runner.plan(bus, registry, desired, Journal(root / "preview.jsonl"))
+        if not run.changes:
+            console.print("[green]Nothing.[/] The tenant already matches it.")
+            return
+        _render_plan(run.evaluation, transport)
+
+
 def _load(file: Path):
     """Settings, modules and desired state, or exit with what is wrong with them."""
     settings = load_settings()

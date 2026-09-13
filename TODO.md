@@ -77,8 +77,19 @@ Erledigte Altlasten aus Phase 3:
       in der VM einmal `claude` starten und mit dem Abo anmelden (oder
       `CLAUDE_CODE_OAUTH_TOKEN` aus `claude setup-token`). `ANTHROPIC_API_KEY` darf
       **nicht** gesetzt sein, sonst rechnet das SDK über den Key ab. Modell: `AFABRIC_MODEL`.
-- [ ] Intent in natürlicher Sprache („neue Dev-Umgebung für Team Vertrieb") wird zu
-      einem `fabric.yaml`-Vorschlag, den der Nutzer prüft
+- [x] Intent in natürlicher Sprache („neue Dev-Umgebung für Team Vertrieb") wird zu
+      einem `fabric.yaml`-Vorschlag, den der Nutzer prüft — `afab propose "<intent>"`.
+      Der Vorschlag ist ein eigenes `fabric.d/`-Fragment, nie eine Änderung an
+      bestehenden Dateien. Der Agent bekommt zusätzlich `declared_schema` (JSON-Schema
+      je Modul, aus `model.Config`), `validate_fragment` (prüft über `load_desired`,
+      also denselben Pfad wie `plan`) und `submit_proposal` (nimmt nur Gültiges an).
+      Danach plant die CLI das Fragment lesend in einer Wegwerf-Kopie der Kaskade und
+      zeigt die Plan-Tabelle. Geschrieben wird nur mit `-o`.
+      **Live verifiziert 2026-09-13:** Intent „Dev-Umgebung Team Vertrieb, Capacity
+      capfabricf4, Ordner Bronze/Silver/Gold" → gültiges Fragment, 4 Changes in der
+      Vorschau, 6 Turns, ca. $0.18. Der Agent prüfte selbst, dass der Name frei ist,
+      ließ `roles` weg (keine Principal-IDs bekannt) und wies darauf hin, dass
+      `capfabricf4` auf `Inactive` steht — das stimmte, über beide Transporte.
 - [ ] Der Agent schlägt nur vor. Angewendet wird weiter über `runner.plan`/`runner.apply`
       aus Phase 3, mit Policy, Freigabe und Journal.
 

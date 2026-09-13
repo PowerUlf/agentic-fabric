@@ -20,6 +20,10 @@ afab status --transport rest    # same output, other backend — see below
 afab modules                    # discovered modules; exits 1 on any module problem
 afab logout                     # drop the stored sign-in
 
+afab plan -f fabric.yaml        # read-only; apply applies the same plan
+afab explain -f fabric.yaml     # agent explains the drift plan found
+afab propose "<intent>"         # agent drafts a fabric.d/ fragment; -o writes it
+
 AFABRIC_MODULE_PATH=/some/dir afab modules   # load modules straight from directories
 ```
 
