@@ -47,7 +47,12 @@ Erledigte Altlasten aus Phase 3:
 
 ## Vor dem nächsten Schreiblauf
 
-- [ ] `afab status` prüfen: pausiert `capfabricf4`, scheitern Anlegen und Zuweisen
+- [x] **Pausierte Capacity blockiert nichts.** Am 2026-09-13 stand `capfabricf4` auf
+      `Inactive` (beide Transporte melden das gleich). Trotzdem liefen `workspace.create`
+      *mit* Capacity und `workspace.assign_capacity` durch, beide mit
+      `capacityAssignmentProgress: Completed`. Die frühere Annahme, das scheitere,
+      stimmt für Workspace- und Ordner-Operationen nicht. Ob das Anlegen von *Items*
+      eine laufende Capacity braucht, ist damit nicht beantwortet.
 - [ ] Für Schreibtests wieder einen Wegwerf-Workspace nehmen, nie `faf_dev`.
       Die YAMLs von Phase 3 liegen unter `.afabric/e2e/` (gitignored, lokal).
 
@@ -105,10 +110,13 @@ korrekt benennen.
       `McpBackend` nicht. Keine der Workspace- und Ordner-Operationen kam bisher
       asynchron zurück. Der MCP-Server bietet `get_operation_state`/`get_operation_result`,
       falls es nötig wird.
-- [ ] **`assign_to_capacity` ist live ungetestet** — und damit der REST-Fallback über den
-      MCP-Transport, das einzige architektonisch neue Stück im ToolBus. In der
-      Verifikation kam es nie dran, weil der Workspace seine Capacity schon beim Anlegen
-      bekam und `workspace.assign_capacity` deshalb nie geplant wurde. Nur Unit-Tests.
+- [x] **`assign_to_capacity` live geprüft (2026-09-13)** — und damit der REST-Fallback
+      über den MCP-Transport, das einzige architektonisch neue Stück im ToolBus.
+      Vorgehen, falls nochmal nötig: Workspace *ohne* `capacity` deklarieren und anlegen,
+      dann dieselbe Datei mit `capacity:` anwenden — erst dann plant das Modul
+      `workspace.assign_capacity`. Lief über `-t mcp` durch, `capacityId` danach gesetzt,
+      `plan` über beide Transporte anschließend leer. Kein 202/LRO dabei, der
+      MCP-seitige LRO-Pfad bleibt also weiter ungetestet.
 - [ ] **`OperationHasNoResult` ist geraten.** `await_operation` liest diesen Fehlercode
       als „Operation ohne Ergebnis". Kein Aufruf in Phase 3 kam asynchron zurück, der
       Code ist also nie gelaufen. Fällt im Zweifel sicher aus: ein unerwarteter Fehler
