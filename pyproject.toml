@@ -35,6 +35,7 @@ afab = "afabric.cli:app"
 # can join the same group from their own package.
 [project.entry-points."afabric.modules"]
 workspace = "afabric.modules.workspace.manifest:MANIFEST"
+job-health = "afabric.modules.jobhealth.manifest:MANIFEST"
 
 [build-system]
 requires = ["hatchling"]

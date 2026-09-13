@@ -1,19 +1,34 @@
-# TODO — Phase 4: Agent-Loop
+# TODO — Phase 5: zweites Modul
 
-Stand 2026-09-12. Phase 0 bis 3 sind fertig, committet und gepusht.
+Stand 2026-09-13. Phase 0 bis 4 sind fertig, committet und gepusht.
 Plan: `docs/plan.md` (lokal, nicht im Repo)
+
+## Das Nächste: Modul-eigene Tools (entschieden am 2026-09-13)
+
+`job-health` brauchte zwei neue Endpunkte und musste dafür `kernel/tools.py` anfassen.
+Die `tools`-Komponente aus dem Modulvertrag ist dokumentiert, aber **nirgends
+verdrahtet**: kein Code liest sie. Nachrüsten, dann braucht Modul 3 keinen
+Kernel-Eingriff mehr.
+
+Betrifft `toolbus.py` (Katalog und Modul-Specs zusammenführen), `modules.py`
+(`component("tools")` einlesen) und `session.py` (Specs beim Verbinden übergeben).
+Danach die zwei Job-Specs aus `kernel/tools.py` nach
+`modules/jobhealth/tools.py` verschieben. Etwa 1-2 Stunden.
 
 ## Wieder reinkommen
 
 ```bash
 cd ~/omarchy/agentic-fabric
-.venv/bin/afab status             # muss faf_dev zeigen, ohne Login
-.venv/bin/afab modules            # workspace, keine Probleme
-.venv/bin/pytest -q               # 94 grün
 
-# Lesender Lauf gegen den Tenant. Nicht examples/fabric.yaml nehmen — die nennt die
-# Capacity `my-fabric-capacity`, die es hier nicht gibt, und bricht mit PlanError ab.
-.venv/bin/afab plan -f .afabric/e2e/fabric.yaml    # lokal, gitignored
+# Mac: venv liegt außerhalb des Repos, die Repo-.venv gehört der VM.
+~/.venvs/agentic-fabric/bin/afab status     # faf_dev, faf_dev ohne Login
+~/.venvs/agentic-fabric/bin/afab modules    # workspace + job-health, keine Probleme
+~/.venvs/agentic-fabric/bin/pytest -q       # 132 grün
+
+# Lesende Läufe gegen den Tenant, beide lokal und gitignored. Nicht
+# examples/fabric.yaml nehmen — die nennt eine Capacity, die es hier nicht gibt.
+~/.venvs/agentic-fabric/bin/afab plan -f .afabric/e2e/fabric.yaml
+~/.venvs/agentic-fabric/bin/afab plan -f .afabric/jobs/fabric.yaml   # job-health
 ```
 
 ## Was Phase 3 am 2026-09-12 live bewiesen hat
@@ -100,6 +115,47 @@ Erledigte Altlasten aus Phase 3:
 
 *Verifikation:* Drift von Hand im Fabric-Portal erzeugen, `afab explain` muss sie
 korrekt benennen.
+
+## Phase 5 — Modul 2: `job-health` (2026-09-13)
+
+Nur lesen und planen. `observe` holt Items, Läufe und Zeitpläne; `plan` vergleicht mit
+der Erwartung; `apply` verweigert ausdrücklich, statt halb zu handeln.
+
+```yaml
+jobs:
+  - workspace: faf_dev
+    items: "*"              # Glob über Anzeigenamen
+    schedule: required      # plant job.schedule, wo keiner existiert
+    rerun_failed: true      # plant job.rerun, wenn der neueste Lauf fehlschlug
+    stale_after_hours: 24   # plant job.rerun, wenn der letzte Erfolg zu alt ist
+```
+
+**Live verifiziert:** 10 Changes über 5 Items in `faf_dev`, beide Transporte identisch.
+`apply` bricht beim ersten Change ab, 9 nicht versucht, Tenant unberührt.
+
+Gelernt, aus dem Tenant, nicht aus der Doku:
+
+- Der Job-Typ hängt am Item-Typ: `RunNotebook` für Notebooks, `Pipeline` für Data
+  Pipelines. Ein falsches Paar beantwortet der Schedules-Endpunkt mit **400**, nicht mit
+  einer leeren Liste. `model.JOB_TYPES` hält die Zuordnung; unbekannte Item-Typen werden
+  übersprungen, nie geraten.
+- Läufe kommen **unsortiert** zurück. „Der neueste Lauf" heißt Maximum über
+  `startTimeUtc`, nicht `[0]`.
+- Zeitstempel tragen keine Zeitzone und sind laut Doku UTC.
+- Notebooks, die aus einer Pipeline laufen, melden `PipelineRunNotebook` statt
+  `RunNotebook` — der Lauf-Typ ist also nicht der Zeitplan-Typ.
+
+**Gradmesser (die Frage aus `docs/plan.md`):** Manifest, Modell und Prozess brauchten
+nur ein Verzeichnis, kein Kern-Eingriff. Der Kernel musste nur für die zwei neuen
+API-Endpunkte ran — siehe oben, das ist der nächste Schritt.
+
+Offen an diesem Modul:
+
+- [ ] `apply`: Zeitplan anlegen (`POST .../jobs/{jobType}/schedules`) und Lauf starten
+      (`POST .../jobs/instances?jobType=...`). Schreibpfad, bewusst vertagt.
+- [ ] Zeitplan-Inhalt wird nicht verglichen — nur „existiert" oder „fehlt". Intervall,
+      Zeitzone und `enabled` bleiben unbeachtet.
+- [ ] Auto-Disable des Schedulers (nach ~10 Fehlläufen) wird nicht erkannt.
 
 ## Offen, ohne Eile
 

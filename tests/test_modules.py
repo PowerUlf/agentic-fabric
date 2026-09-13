@@ -67,8 +67,9 @@ class TestBuiltins:
         # Built-in scan and the entry point both see it; that is one module, not a clash.
         registry = discover()
         assert registry.ok, registry.problems
-        assert list(registry.modules) == ["workspace"]
+        assert sorted(registry.modules) == ["job-health", "workspace"]
         assert registry.modules["workspace"].origin == "builtin"
+        assert registry.modules["job-health"].origin == "builtin"
 
     def test_missing_component_is_none(self):
         workspace = discover().modules["workspace"]
