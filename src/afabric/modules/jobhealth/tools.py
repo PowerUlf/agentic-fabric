@@ -39,6 +39,14 @@ SPECS = [
         ),
     ),
     ToolSpec(
+        name="delete_item_schedule",
+        description="Delete one schedule of an item.",
+        rest=RestOp(
+            "DELETE",
+            "/workspaces/{workspaceId}/items/{itemId}/jobs/{jobType}/schedules/{scheduleId}",
+        ),
+    ),
+    ToolSpec(
         name="run_item_job",
         description="Start one on-demand run of an item's job.",
         rest=RestOp("POST", "/workspaces/{workspaceId}/items/{itemId}/jobs/{jobType}/instances"),

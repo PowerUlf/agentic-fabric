@@ -123,8 +123,19 @@ class WatchSpec(BaseModel):
     types: list[str] = Field(default_factory=lambda: sorted(JOB_TYPES))
     """Item types to watch. Anything outside `JOB_TYPES` has no schedulable job."""
 
-    schedule: ScheduleSpec | None = None
-    """Declared: every watched item without a schedule gets this one."""
+    schedule: ScheduleSpec | list[ScheduleSpec] | None = None
+    """One schedule, or several. Declared means every watched item must have them.
+
+    Fabric schedules carry no name, so several are matched by age: the first declared one
+    is compared against the oldest existing one, and so on. Anything beyond the
+    declaration is surplus, and `policy.prune` decides whether it goes.
+    """
+
+    @property
+    def schedules(self) -> list[ScheduleSpec]:
+        if self.schedule is None:
+            return []
+        return self.schedule if isinstance(self.schedule, list) else [self.schedule]
 
     rerun_failed: bool = False
     """Plan a rerun when an item's newest run failed."""
@@ -138,6 +149,8 @@ class WatchSpec(BaseModel):
             raise ValueError(
                 "declares nothing to watch — set schedule, rerun_failed or stale_after_hours"
             )
+        if isinstance(self.schedule, list) and not self.schedule:
+            raise ValueError("schedule is an empty list — declare one, or leave it out")
         unknown = [t for t in self.types if t not in JOB_TYPES]
         if unknown:
             known = ", ".join(sorted(JOB_TYPES))

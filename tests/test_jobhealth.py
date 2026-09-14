@@ -13,6 +13,7 @@ from afabric.modules.jobhealth.model import Config
 
 NOW = datetime(2026, 9, 13, 12, 0, tzinfo=UTC)
 POLICY = PolicyConfig()
+PRUNING = PolicyConfig(prune=True)
 SCHEDULE = {"interval_minutes": 60, "timezone": "W. Europe Standard Time"}
 
 ITEMS = [
@@ -198,11 +199,78 @@ class TestScheduleContent:
         )
         assert change.metadata["configuration"]["startDateTime"] == "2030-06-01T05:00:00"
 
-    def test_several_schedules_refuse_rather_than_guess(self):
-        bus = FakeBus(schedules={"nb1": [_existing(), _existing()]})
+    def test_several_declared_schedules_pair_by_age(self):
+        old = {**_existing(interval=30), "id": "old", "createdDateTime": "2026-01-01"}
+        new = {**_existing(interval=90), "id": "new", "createdDateTime": "2026-06-01"}
+        bus = FakeBus(schedules={"nb1": [new, old]})  # returned newest first
+        desired = _config(
+            items="nb_bronze",
+            rerun_failed=False,
+            schedule=[{**SCHEDULE, "interval_minutes": 30}, {**SCHEDULE, "interval_minutes": 60}],
+        )
+
+        changes = process.plan(desired, _observe(bus, desired), POLICY, now=NOW)
+
+        # The older one already matches the first declaration; only the newer differs.
+        assert [(c.action, c.metadata["schedule_id"]) for c in changes] == [
+            ("job.schedule_update", "new")
+        ]
+        assert changes[0].after == {"interval_minutes": 60}
+
+    def test_a_missing_second_schedule_is_created(self):
+        bus = FakeBus(schedules={"nb1": [_existing()]})
+        desired = _config(
+            items="nb_bronze",
+            rerun_failed=False,
+            schedule=[SCHEDULE, {**SCHEDULE, "interval_minutes": 120}],
+        )
+
+        changes = process.plan(desired, _observe(bus, desired), POLICY, now=NOW)
+
+        assert [c.action for c in changes] == ["job.schedule"]
+        assert changes[0].after["every_minutes"] == 120
+
+    def test_surplus_schedules_only_go_with_prune(self):
+        extra = {**_existing(), "id": "extra", "createdDateTime": "2026-06-01"}
+        bus = FakeBus(schedules={"nb1": [_existing(), extra]})
         desired = _config(items="nb_bronze", schedule=SCHEDULE, rerun_failed=False)
-        with pytest.raises(process.PlanError, match="2 schedules exist"):
-            process.plan(desired, _observe(bus, desired), POLICY, now=NOW)
+
+        assert process.plan(desired, _observe(bus, desired), POLICY, now=NOW) == []
+
+        [change] = process.plan(desired, _observe(bus, desired), PRUNING, now=NOW)
+        assert change.action == "job.schedule_delete" and change.risk.value == "destructive"
+        assert change.metadata["schedule_id"] == "extra"
+
+    def test_an_empty_schedule_list_is_refused(self):
+        with pytest.raises(ValidationError, match="empty list"):
+            Config.model_validate([{"workspace": "faf_dev", "schedule": []}])
+
+    def test_apply_deletes_a_surplus_schedule(self):
+        extra = {**_existing(), "id": "extra", "createdDateTime": "2026-06-01"}
+        bus = WritingBus(schedules={"nb1": [_existing(), extra]})
+        desired = _config(items="nb_bronze", schedule=SCHEDULE, rerun_failed=False)
+        changes = process.plan(desired, _observe(bus, desired), PRUNING, now=NOW)
+
+        outcomes = asyncio.run(process.apply(changes, bus))
+
+        assert [o.ok for o in outcomes] == [True]
+        [(_, args)] = [c for c in bus.calls if c[0] == "delete_item_schedule"]
+        assert args["scheduleId"] == "extra"
+
+    def test_the_projection_settles_with_several(self):
+        extra = {**_existing(interval=15), "id": "extra", "createdDateTime": "2026-06-01"}
+        bus = FakeBus(schedules={"nb1": [_existing(), extra]})
+        desired = _config(
+            items="nb_bronze",
+            rerun_failed=False,
+            schedule=[SCHEDULE, {**SCHEDULE, "interval_minutes": 120}, SCHEDULE],
+        )
+        observed = _observe(bus, desired)
+
+        changes = process.plan(desired, observed, PRUNING, now=NOW)
+        after = process.project(observed, changes)
+
+        assert process.plan(desired, after, PRUNING, now=NOW) == []
 
     def test_the_projection_settles(self):
         bus = FakeBus(schedules={"nb1": [_existing(interval=30, enabled=False)]})
@@ -309,7 +377,12 @@ class WritingBus(FakeBus):
         self.fail = fail
 
     async def call(self, name, **args):
-        if name in {"create_item_schedule", "update_item_schedule", "run_item_job"}:
+        if name in {
+            "create_item_schedule",
+            "update_item_schedule",
+            "delete_item_schedule",
+            "run_item_job",
+        }:
             self.calls.append((name, args))
             if name == self.fail:
                 raise RuntimeError("tenant said no")

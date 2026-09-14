@@ -135,12 +135,14 @@ def plan(desired: Config, observed: Observed, policy: PolicyConfig, now=None) ->
         if found is None:
             continue
         for item in found.items:
-            changes.extend(_for_item(watch, found, item, now))
+            changes.extend(_for_item(watch, found, item, now, policy))
 
     return changes
 
 
-def _for_item(watch: WatchSpec, found: ObservedWatch, item: ObservedItem, now) -> list[Change]:
+def _for_item(
+    watch: WatchSpec, found: ObservedWatch, item: ObservedItem, now, policy
+) -> list[Change]:
     changes: list[Change] = []
     target = f"{watch.workspace}/{item.name}"
     metadata = {
@@ -149,66 +151,7 @@ def _for_item(watch: WatchSpec, found: ObservedWatch, item: ObservedItem, now) -
         "job_type": item.job_type,
     }
 
-    if watch.schedule is not None and len(item.schedules) == 1:
-        schedule = item.schedules[0]
-        differences = watch.schedule.differences(schedule)
-        if differences:
-            disabled = differences.get("enabled") == (False, True)
-            changes.append(
-                Change(
-                    module=MODULE,
-                    action="job.schedule_update",
-                    target=target,
-                    risk=Risk.REVERSIBLE,
-                    before={field: was for field, (was, _) in differences.items()},
-                    after={field: wanted for field, (_, wanted) in differences.items()},
-                    reason=(
-                        # Fabric disables a scheduler itself after repeated failures.
-                        "schedule is disabled — declared enabled; Fabric disables a "
-                        "scheduler after about ten consecutive failures"
-                        if disabled
-                        else "schedule differs from the declaration"
-                    ),
-                    metadata={
-                        **metadata,
-                        "schedule_id": schedule.get("id"),
-                        "configuration": watch.schedule.update(schedule),
-                        "enabled": watch.schedule.enabled,
-                    },
-                )
-            )
-    elif watch.schedule is not None and len(item.schedules) > 1:
-        # An item may hold up to 20. Which one the declaration means is not decidable,
-        # and changing the wrong one is worse than reporting nothing.
-        raise PlanError(
-            f"{target}: {len(item.schedules)} schedules exist; this module manages one"
-        )
-
-    if watch.schedule is not None and not item.schedules:
-        configuration = watch.schedule.configuration(now)
-        changes.append(
-            Change(
-                module=MODULE,
-                action="job.schedule",
-                target=target,
-                risk=Risk.SAFE,
-                after={
-                    "every_minutes": watch.schedule.interval_minutes,
-                    "from": configuration["startDateTime"],
-                    "until": configuration["endDateTime"],
-                    "timezone": watch.schedule.timezone,
-                    "enabled": watch.schedule.enabled,
-                },
-                reason="declared, item has no schedule",
-                # apply sends exactly what plan showed: the body is decided here, not
-                # recomputed later from a clock that has moved on.
-                metadata={
-                    **metadata,
-                    "configuration": configuration,
-                    "enabled": watch.schedule.enabled,
-                },
-            )
-        )
+    changes.extend(_schedules(watch, item, target, metadata, now, policy))
 
     newest = item.newest
     if watch.rerun_failed and newest is not None and newest.status == "Failed":
@@ -235,6 +178,97 @@ def _for_item(watch: WatchSpec, found: ObservedWatch, item: ObservedItem, now) -
             )
 
     return changes
+
+
+def _schedules(watch: WatchSpec, item: ObservedItem, target, metadata, now, policy) -> list[Change]:
+    """Line the declared schedules up against the existing ones, oldest first.
+
+    Fabric schedules have no name, only an id and a creation time, so position is the
+    only stable pairing available: the first declared one is the oldest existing one.
+    """
+    declared = watch.schedules
+    if not declared:
+        return []
+
+    existing = sorted(item.schedules, key=lambda s: s.get("createdDateTime") or "")
+    changes: list[Change] = []
+
+    for index, spec in enumerate(declared):
+        if index < len(existing):
+            changes.extend(_schedule_update(spec, existing[index], target, metadata))
+        else:
+            changes.append(_schedule_create(spec, target, metadata, now))
+
+    if policy.prune:
+        for surplus in existing[len(declared) :]:
+            changes.append(
+                Change(
+                    module=MODULE,
+                    action="job.schedule_delete",
+                    target=target,
+                    risk=Risk.DESTRUCTIVE,
+                    before={
+                        "enabled": surplus.get("enabled"),
+                        "configuration": surplus.get("configuration"),
+                    },
+                    reason=f"{len(existing)} schedules exist, {len(declared)} declared, "
+                    "and policy.prune is on",
+                    metadata={**metadata, "schedule_id": surplus.get("id")},
+                )
+            )
+
+    return changes
+
+
+def _schedule_create(spec, target, metadata: dict, now) -> Change:
+    configuration = spec.configuration(now)
+    return Change(
+        module=MODULE,
+        action="job.schedule",
+        target=target,
+        risk=Risk.SAFE,
+        after={
+            "every_minutes": spec.interval_minutes,
+            "from": configuration["startDateTime"],
+            "until": configuration["endDateTime"],
+            "timezone": spec.timezone,
+            "enabled": spec.enabled,
+        },
+        reason="declared, item has no schedule for it",
+        # apply sends exactly what plan showed: the body is decided here, not recomputed
+        # later from a clock that has moved on.
+        metadata={**metadata, "configuration": configuration, "enabled": spec.enabled},
+    )
+
+
+def _schedule_update(spec, schedule: dict, target, metadata: dict) -> list[Change]:
+    differences = spec.differences(schedule)
+    if not differences:
+        return []
+    # Fabric disables a scheduler itself after repeated failures.
+    disabled = differences.get("enabled") == (False, True)
+    return [
+        Change(
+            module=MODULE,
+            action="job.schedule_update",
+            target=target,
+            risk=Risk.REVERSIBLE,
+            before={field: was for field, (was, _) in differences.items()},
+            after={field: wanted for field, (_, wanted) in differences.items()},
+            reason=(
+                "schedule is disabled — declared enabled; Fabric disables a scheduler "
+                "after about ten consecutive failures"
+                if disabled
+                else "schedule differs from the declaration"
+            ),
+            metadata={
+                **metadata,
+                "schedule_id": schedule.get("id"),
+                "configuration": spec.update(schedule),
+                "enabled": spec.enabled,
+            },
+        )
+    ]
 
 
 def _rerun(target, item: ObservedItem, newest: Run | None, metadata: dict, reason: str) -> Change:
@@ -270,13 +304,24 @@ def project(observed: Observed, changes: list[Change]) -> Observed:
         item = items.get((change.metadata.get("workspace_id"), change.metadata.get("item_id")))
         if item is None:
             continue
-        if change.action in {"job.schedule", "job.schedule_update"}:
-            item.schedules = [
+        if change.action == "job.schedule":
+            # Newest, so the age order the plan pairs by stays intact.
+            item.schedules.append(
                 {
-                    "id": change.metadata.get("schedule_id", "projected"),
+                    "id": f"projected-{len(item.schedules)}",
+                    "createdDateTime": "9999",
                     "enabled": change.metadata["enabled"],
                     "configuration": change.metadata["configuration"],
                 }
+            )
+        elif change.action == "job.schedule_update":
+            for schedule in item.schedules:
+                if schedule.get("id") == change.metadata["schedule_id"]:
+                    schedule["enabled"] = change.metadata["enabled"]
+                    schedule["configuration"] = change.metadata["configuration"]
+        elif change.action == "job.schedule_delete":
+            item.schedules = [
+                s for s in item.schedules if s.get("id") != change.metadata["schedule_id"]
             ]
         elif change.action == "job.rerun":
             # A requested run is assumed to succeed; planning against this state must
@@ -344,6 +389,10 @@ async def _apply_one(change: Change, bus) -> Outcome:
             enabled=change.metadata["enabled"],
             configuration=change.metadata["configuration"],
         )
+        return Outcome(change=change, ok=True, output={})
+
+    if change.action == "job.schedule_delete":
+        await bus.call("delete_item_schedule", **where, scheduleId=change.metadata["schedule_id"])
         return Outcome(change=change, ok=True, output={})
 
     if change.action == "job.rerun":

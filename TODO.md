@@ -185,8 +185,13 @@ Offen an diesem Modul:
       ein `enabled: false` gegen eine Deklaration mit `enabled: true`. Der Grund nennt
       Fabrics Abschaltung nach etwa zehn Fehlläufen ausdrücklich, damit niemand den
       Zeitplan blind wieder einschaltet, ohne die Ursache anzusehen.
-- [ ] Mehr als ein Zeitplan je Item: `plan` bricht ab, statt zu raten (bis zu 20 sind
-      erlaubt). Eine Deklaration mehrerer Zeitpläne fehlt.
+- [x] **Mehrere Zeitpläne je Item (2026-09-14).** `schedule:` nimmt auch eine Liste.
+      Fabric-Zeitpläne haben keinen Namen, nur Id und Erstellzeit — die Zuordnung läuft
+      deshalb **über das Alter**: der erste deklarierte gehört zum ältesten vorhandenen.
+      Überzählige löscht nur `policy.prune`, und destruktiv wie überall.
+      Live geprüft: zwei angelegt, `plan` danach leer, dann auf einen reduziert — der
+      neuere (720 Minuten) kam korrekt als `job.schedule_delete` heraus und brauchte
+      ausdrückliche Freigabe.
 
 ## Phase 5 — Modul 3: `governance` (2026-09-14)
 
@@ -293,5 +298,10 @@ Offen an diesem Modul:
       Seiten mit — sonst wäre ab Seite zwei eine andere Frage beantwortet worden. Der
       Agent bietet solche Argumente wieder an, `list_items(type=...)` inklusive.
       Live: `faf_dev` hat 7 Items, mit `type=Notebook` genau 4 — über beide Transporte.
-- [ ] Principal-IDs vs. E-Mail — Graph MCP Server, später
+- [ ] **Principal-IDs statt E-Mail.** `roles:` verlangt Entra-Objekt-Ids, weil die
+      Fabric-API keine Auflösung von Namen kennt. Der Weg wäre ein **zweites Token** für
+      `https://graph.microsoft.com/.default` aus derselben App-Registrierung und ein
+      Lookup `GET /users/{upn}`. Das braucht eine eigene Zustimmung
+      (`User.ReadBasic.All`), also nichts, was nebenbei passiert — und einen Cache, sonst
+      kostet jeder Plan zusätzliche Aufrufe. Alternative bliebe der Graph-MCP-Server.
 - [ ] Service Principal für den unbeaufsichtigten REST-Pfad — Phase 5
