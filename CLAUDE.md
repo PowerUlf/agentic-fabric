@@ -66,8 +66,13 @@ exists only because Core MCP cannot authenticate unattended. Callers must never 
 on transport; `afab status --transport mcp` and `--transport rest` producing identical
 output is the standing regression test.
 
-**`kernel/tools.py` is the single place tool names live.** Core MCP is in preview and
-its surface may change before GA. A rename is a one-line edit there and nowhere else.
+**`kernel/tools.py` holds the tools the kernel itself needs.** Core MCP is in preview and
+its surface may change before GA, so a rename stays a one-line edit. A tool only one
+module uses belongs to that module: `modules/<name>/tools.py` exports `SPECS`, discovery
+refuses a name that shadows the catalog or another module, and `ToolBus.call` resolves
+module tools first. `session.connect(..., registry=...)` is what hands them over — a bus
+opened without a registry serves the catalog alone, which is why `afab status` works
+without one and module commands pass theirs.
 
 ## Fabric Core MCP behaviours worth not rediscovering
 

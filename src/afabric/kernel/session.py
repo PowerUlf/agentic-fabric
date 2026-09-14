@@ -20,18 +20,30 @@ async def connect(
     *,
     transport: Transport | None = None,
     interactive: str | None = None,
+    registry=None,
 ):
-    """Open a ToolBus over the requested transport."""
+    """Open a ToolBus over the requested transport.
+
+    A registry hands the bus the tools its modules declare, so a module needing an
+    endpoint the kernel catalog lacks does not have to grow the catalog.
+    """
     transport = transport or settings.transport
 
     token = acquire_token(settings, interactive=interactive)
     identity = principal_id(token)
+    tools = registry.tool_specs() if registry is not None else None
 
     async with RestClient(token, settings) as client:
         rest = RestBackend(client)
         if transport is Transport.REST:
-            yield ToolBus(rest, settings, identity=identity)
+            yield ToolBus(rest, settings, identity=identity, tools=tools)
         else:
             # REST rides along for the tools Core MCP lacks.
             async with mcp_session(token, settings) as session:
-                yield ToolBus(McpBackend(session), settings, fallback=rest, identity=identity)
+                yield ToolBus(
+                    McpBackend(session),
+                    settings,
+                    fallback=rest,
+                    identity=identity,
+                    tools=tools,
+                )

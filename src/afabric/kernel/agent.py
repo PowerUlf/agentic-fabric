@@ -88,9 +88,19 @@ class AgentError(RuntimeError):
     """The agent could not produce an explanation."""
 
 
-def read_only_tools() -> list[ToolSpec]:
-    """Catalog tools that only read. Anything without a GET mapping is left out."""
-    return [s for s in CATALOG.values() if s.rest is not None and s.rest.method == "GET"]
+def read_only_tools(catalog: dict[str, ToolSpec] | None = None) -> list[ToolSpec]:
+    """Tools that only read. Anything without a GET mapping is left out.
+
+    The catalog defaults to the kernel's, but a bus carries the tools its modules
+    declared too — a module adding a read endpoint extends the agent with it.
+    """
+    tools = catalog if catalog is not None else CATALOG
+    return [s for s in tools.values() if s.rest is not None and s.rest.method == "GET"]
+
+
+def _catalog(bus) -> dict[str, ToolSpec]:
+    reachable = getattr(bus, "catalog", None)
+    return reachable() if callable(reachable) else CATALOG
 
 
 def tool_schema(spec: ToolSpec) -> dict[str, Any]:
@@ -118,7 +128,7 @@ def build_tools(bus, journal_path: Path | str) -> list:
         tool(spec.name, spec.description, tool_schema(spec), annotations=read_only)(
             _bus_handler(bus, spec.name)
         )
-        for spec in read_only_tools()
+        for spec in read_only_tools(_catalog(bus))
     ]
     tools.append(
         tool(
@@ -214,7 +224,7 @@ def build_propose_tools(bus, registry) -> tuple[list, dict[str, Any]]:
         tool(spec.name, spec.description, tool_schema(spec), annotations=read_only)(
             _bus_handler(bus, spec.name)
         )
-        for spec in read_only_tools()
+        for spec in read_only_tools(_catalog(bus))
     ]
 
     @tool(

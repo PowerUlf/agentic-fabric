@@ -17,7 +17,7 @@ from typing import Any, Protocol
 from afabric.kernel.config import Settings, Transport
 from afabric.kernel.mcp_client import unwrap
 from afabric.kernel.rest_client import RestClient
-from afabric.kernel.tools import ToolSpec, spec
+from afabric.kernel.tools import CATALOG, ToolSpec, spec
 
 
 class Backend(Protocol):
@@ -130,10 +130,14 @@ class ToolBus:
         *,
         fallback: Backend | None = None,
         identity: str | None = None,
+        tools: dict[str, ToolSpec] | None = None,
     ) -> None:
         self._backend = backend
         self._fallback = fallback
         self._settings = settings
+        self._tools = tools or {}
+        """Tools the loaded modules brought. The kernel catalog is the fallback."""
+
         self._capabilities: dict[str, Any] = {}
         self.identity = identity
         """Entra object id of whoever this bus acts as, when the token reveals it."""
@@ -142,8 +146,17 @@ class ToolBus:
     def transport(self) -> Transport:
         return Transport(self._backend.name)
 
+    def catalog(self) -> dict[str, ToolSpec]:
+        """Every tool this bus can serve: the kernel's, plus what the modules brought."""
+        return {**CATALOG, **self._tools}
+
+    def spec(self, tool_name: str) -> ToolSpec:
+        """Resolve a tool name: module tools first, then the kernel catalog."""
+        tool = self._tools.get(tool_name)
+        return tool if tool is not None else spec(tool_name)
+
     async def call(self, tool_name: str, **args: Any) -> Any:
-        tool = spec(tool_name)
+        tool = self.spec(tool_name)
         # A tool Core MCP does not offer is served over REST with the same identity.
         # Callers never see which one answered.
         if self._backend.name == "mcp" and not tool.mcp_tool and self._fallback is not None:

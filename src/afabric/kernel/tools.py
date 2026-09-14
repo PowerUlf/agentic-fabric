@@ -104,19 +104,6 @@ CATALOG: dict[str, ToolSpec] = {
         mcp_args=_WORKSPACE_ID,
         paged=True,
     ),
-    "list_item_job_instances": ToolSpec(
-        name="list_item_job_instances",
-        description="List recent job runs of one item, newest first.",
-        rest=RestOp("GET", "/workspaces/{workspaceId}/items/{itemId}/jobs/instances"),
-        paged=True,
-        # Core MCP offers no job-scheduler tool; served over REST on every transport.
-    ),
-    "list_item_schedules": ToolSpec(
-        name="list_item_schedules",
-        description="List the schedules of one item for one job type.",
-        rest=RestOp("GET", "/workspaces/{workspaceId}/items/{itemId}/jobs/{jobType}/schedules"),
-        paged=True,
-    ),
     # --- writes ---------------------------------------------------------------
     "create_workspace": ToolSpec(
         name="create_workspace",

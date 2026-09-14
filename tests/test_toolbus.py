@@ -6,7 +6,7 @@ import pytest
 
 from afabric.cli import _as_rows, _describe
 from afabric.kernel.toolbus import ToolBus, _fill, _mcp_payload
-from afabric.kernel.tools import CATALOG, spec
+from afabric.kernel.tools import CATALOG, RestOp, ToolSpec, spec
 
 
 class TestPathFilling:
@@ -77,6 +77,41 @@ class TestFallback:
         bus, mcp, rest = self._bus()
         assert asyncio.run(bus.call("list_workspaces")) == "mcp"
         assert rest.calls == []
+
+
+class TestModuleTools:
+    """Tools a module declared are served like the kernel's own."""
+
+    MODULE_TOOL = ToolSpec(
+        name="list_things",
+        description="a module's own endpoint",
+        rest=RestOp("GET", "/workspaces/{workspaceId}/things"),
+        paged=True,
+    )
+
+    def _bus(self):
+        backend = TestFallback._Backend("rest")
+        return ToolBus(backend, settings=None, tools={"list_things": self.MODULE_TOOL}), backend
+
+    def test_a_module_tool_resolves_and_is_served(self):
+        bus, backend = self._bus()
+        assert asyncio.run(bus.call("list_things", workspaceId="w")) == "rest"
+        assert backend.calls == ["list_things"]
+
+    def test_the_catalog_still_resolves(self):
+        bus, _ = self._bus()
+        assert bus.spec("list_workspaces").name == "list_workspaces"
+
+    def test_the_bus_catalog_holds_both(self):
+        bus, _ = self._bus()
+        catalog = bus.catalog()
+        assert catalog["list_things"] is self.MODULE_TOOL
+        assert set(CATALOG) <= set(catalog)
+
+    def test_an_unknown_tool_still_raises(self):
+        bus, _ = self._bus()
+        with pytest.raises(KeyError, match="no_such_tool"):
+            bus.spec("no_such_tool")
 
 
 class TestCatalog:

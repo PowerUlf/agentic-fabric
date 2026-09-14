@@ -50,6 +50,11 @@ MANIFEST = ModuleManifest(
 ```
 
 ```python
+# tools.py — optional
+SPECS = [ToolSpec(...)]    # endpoints only this module needs; merged into the ToolBus
+```
+
+```python
 # model.py — optional
 Config = ...                                   # type its config section validates as
 def merge(fragments: list[Fragment]) -> Any    # its own cascade merge; generic otherwise

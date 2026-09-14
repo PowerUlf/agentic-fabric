@@ -3,17 +3,20 @@
 Stand 2026-09-13. Phase 0 bis 4 sind fertig, committet und gepusht.
 Plan: `docs/plan.md` (lokal, nicht im Repo)
 
-## Das Nächste: Modul-eigene Tools (entschieden am 2026-09-13)
+## Erledigt am 2026-09-14: Modul-eigene Tools
 
-`job-health` brauchte zwei neue Endpunkte und musste dafür `kernel/tools.py` anfassen.
-Die `tools`-Komponente aus dem Modulvertrag ist dokumentiert, aber **nirgends
-verdrahtet**: kein Code liest sie. Nachrüsten, dann braucht Modul 3 keinen
-Kernel-Eingriff mehr.
+Die `tools`-Komponente ist jetzt verdrahtet. `registry.tool_specs()` sammelt die `SPECS`
+der Module, `session.connect(..., registry=...)` reicht sie an den ToolBus, und
+`ToolBus.call` schlägt erst dort nach, dann im Katalog. Die Discovery meldet als Problem,
+wenn ein Modul einen Katalog-Namen oder den eines anderen Moduls überschreiben will —
+ein Modul, das still `delete_workspace` umdefiniert, wäre der teuerste denkbare Fehler.
 
-Betrifft `toolbus.py` (Katalog und Modul-Specs zusammenführen), `modules.py`
-(`component("tools")` einlesen) und `session.py` (Specs beim Verbinden übergeben).
-Danach die zwei Job-Specs aus `kernel/tools.py` nach
-`modules/jobhealth/tools.py` verschieben. Etwa 1-2 Stunden.
+Die zwei Job-Endpunkte liegen jetzt in `modules/jobhealth/tools.py`; `kernel/tools.py`
+kennt sie nicht mehr. Live geprüft: `afab plan -f .afabric/jobs/fabric.yaml` liefert über
+beide Transporte weiterhin 10 Changes.
+
+**Damit ist die Gradmesser-Frage beantwortet:** Modul 3 braucht ein Verzeichnis, sonst
+nichts — auch nicht für eigene Endpunkte.
 
 ## Wieder reinkommen
 
@@ -145,9 +148,9 @@ Gelernt, aus dem Tenant, nicht aus der Doku:
 - Notebooks, die aus einer Pipeline laufen, melden `PipelineRunNotebook` statt
   `RunNotebook` — der Lauf-Typ ist also nicht der Zeitplan-Typ.
 
-**Gradmesser (die Frage aus `docs/plan.md`):** Manifest, Modell und Prozess brauchten
-nur ein Verzeichnis, kein Kern-Eingriff. Der Kernel musste nur für die zwei neuen
-API-Endpunkte ran — siehe oben, das ist der nächste Schritt.
+**Gradmesser (die Frage aus `docs/plan.md`):** Manifest, Modell und Prozess brauchten nur
+ein Verzeichnis. Für die zwei neuen API-Endpunkte musste zunächst `kernel/tools.py` ran —
+das ist am 2026-09-14 behoben, die Specs liegen jetzt im Modul (siehe oben).
 
 Offen an diesem Modul:
 

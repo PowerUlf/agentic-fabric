@@ -62,6 +62,63 @@ class TestModularity:
         assert "workspace" in result.output
 
 
+TOOLS = """
+    from afabric.kernel.tools import RestOp, ToolSpec
+
+    SPECS = [
+        ToolSpec(
+            name="{name}",
+            description="a module's own endpoint",
+            rest=RestOp("GET", "/workspaces/{{workspaceId}}/things"),
+            paged=True,
+        )
+    ]
+"""
+
+
+class TestModuleTools:
+    def test_a_module_brings_its_own_tools(self, tmp_path):
+        _write_module(tmp_path, "dummy", DUMMY_MANIFEST, tools=TOOLS.format(name="list_things"))
+
+        registry = discover([tmp_path])
+
+        assert registry.ok, registry.problems
+        assert registry.tool_specs()["list_things"].rest.path == "/workspaces/{workspaceId}/things"
+
+    def test_a_module_may_not_shadow_a_catalog_tool(self, tmp_path):
+        _write_module(tmp_path, "dummy", DUMMY_MANIFEST, tools=TOOLS.format(name="list_workspaces"))
+
+        registry = discover([tmp_path])
+
+        assert not registry.ok
+        assert "already in the kernel catalog" in registry.problems[0].message
+
+    def test_two_modules_may_not_declare_the_same_tool(self, tmp_path):
+        _write_module(tmp_path, "dummy", DUMMY_MANIFEST, tools=TOOLS.format(name="list_things"))
+        _write_module(
+            tmp_path,
+            "other",
+            DUMMY_MANIFEST.replace('name="dummy"', 'name="other"')
+            .replace('config_key="dummies"', 'config_key="others"')
+            .replace('provides=["dummy.ping"]', 'provides=["other.ping"]'),
+            tools=TOOLS.format(name="list_things"),
+        )
+
+        registry = discover([tmp_path])
+
+        assert not registry.ok
+        assert "already declared by" in registry.problems[0].message
+
+    def test_the_job_health_module_owns_its_endpoints(self):
+        from afabric.kernel.tools import CATALOG
+
+        specs = discover().tool_specs()
+
+        assert set(specs) == {"list_item_job_instances", "list_item_schedules"}
+        # They are the module's, not the kernel's.
+        assert not set(specs) & set(CATALOG)
+
+
 class TestBuiltins:
     def test_workspace_found_once_despite_two_sources(self):
         # Built-in scan and the entry point both see it; that is one module, not a clash.

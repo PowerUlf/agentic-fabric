@@ -244,7 +244,7 @@ def _run(
 async def _session(
     settings, registry, desired, journal, transport, *, apply_changes, yes, approve_destructive
 ) -> int:
-    async with connect(settings, transport=transport) as bus:
+    async with connect(settings, transport=transport, registry=registry) as bus:
         run = await runner.plan(bus, registry, desired, journal)
         _render_plan(run.evaluation, transport)
 
@@ -400,7 +400,7 @@ async def _propose_session(settings, registry, journal, intent, file, out, trans
 
     from afabric.kernel import agent
 
-    async with connect(settings, transport=transport) as bus:
+    async with connect(settings, transport=transport, registry=registry) as bus:
         with console.status(f"drafting with {settings.model}…"):
             proposal = await agent.propose(
                 bus, registry, intent, model=settings.model, language=settings.language
@@ -535,7 +535,7 @@ def explain(
 async def _explain_session(settings, registry, desired, journal, transport) -> int:
     from afabric.kernel import agent
 
-    async with connect(settings, transport=transport) as bus:
+    async with connect(settings, transport=transport, registry=registry) as bus:
         run = await runner.plan(bus, registry, desired, journal)
         _render_plan(run.evaluation, transport)
         if not run.changes:

@@ -27,6 +27,7 @@ from pathlib import Path
 from types import ModuleType
 
 from afabric.kernel.manifest import ModuleManifest
+from afabric.kernel.tools import CATALOG, ToolSpec
 
 ENTRY_POINT_GROUP = "afabric.modules"
 BUILTIN_PACKAGE = "afabric.modules"
@@ -92,6 +93,19 @@ class ModuleRegistry:
 
     def by_config_key(self) -> dict[str, Module]:
         return {m.manifest.config_key: m for m in self if m.manifest.config_key}
+
+    def tool_specs(self) -> dict[str, ToolSpec]:
+        """Tools the modules bring, keyed by name.
+
+        A module that needs an endpoint the kernel catalog lacks declares it in its own
+        `tools.py` as `SPECS`, rather than the catalog growing a domain-specific entry.
+        Discovery already reported any name that clashes, so the merge here is plain.
+        """
+        found: dict[str, ToolSpec] = {}
+        for module in self:
+            for name, tool in _module_specs(module).items():
+                found.setdefault(name, tool)
+        return found
 
     def provided_capabilities(self) -> set[str]:
         provided = set(KERNEL_CAPABILITIES)
@@ -204,7 +218,48 @@ def _register(
     registry.modules[manifest.name] = Module(manifest, package, origin)
 
 
+def _module_specs(module: Module) -> dict[str, ToolSpec]:
+    """A module's own tool specs, or nothing when it declares none."""
+    tools = module.component("tools")
+    specs = getattr(tools, "SPECS", None) if tools else None
+    if specs is None:
+        return {}
+    if isinstance(specs, dict):
+        specs = list(specs.values())
+    return {s.name: s for s in specs if isinstance(s, ToolSpec)}
+
+
+def _check_tools(registry: ModuleRegistry) -> None:
+    """Module tools may not shadow the catalog or each other.
+
+    Shadowing is the one thing this registration must not allow: a module quietly
+    redefining `delete_workspace` would change what every other module's calls do.
+    """
+    tool_owner: dict[str, str] = {}
+    for module in registry.modules.values():
+        try:
+            specs = _module_specs(module)
+        except Exception as exc:
+            registry.problems.append(ModuleProblem(module.name, f"tools failed to load: {exc}"))
+            continue
+
+        for name in specs:
+            if name in CATALOG:
+                registry.problems.append(
+                    ModuleProblem(module.name, f"tool {name!r} is already in the kernel catalog")
+                )
+            elif name in tool_owner:
+                registry.problems.append(
+                    ModuleProblem(
+                        module.name, f"tool {name!r} is already declared by {tool_owner[name]!r}"
+                    )
+                )
+            else:
+                tool_owner[name] = module.name
+
+
 def _check_consistency(registry: ModuleRegistry) -> None:
+    _check_tools(registry)
     config_owner: dict[str, str] = {}
     capability_owner: dict[str, str] = {}
 
