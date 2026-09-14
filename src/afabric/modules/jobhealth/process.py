@@ -73,7 +73,7 @@ async def observe(bus, desired: Config) -> Observed:
                     )
                 )
             ]
-            if watch.schedule != "ignore":
+            if watch.schedule is not None:
                 item.schedules = _rows(
                     await bus.call(
                         "list_item_schedules",
@@ -149,16 +149,29 @@ def _for_item(watch: WatchSpec, found: ObservedWatch, item: ObservedItem, now) -
         "job_type": item.job_type,
     }
 
-    if watch.schedule == "required" and not item.schedules:
+    if watch.schedule is not None and not item.schedules:
+        configuration = watch.schedule.configuration(now)
         changes.append(
             Change(
                 module=MODULE,
                 action="job.schedule",
                 target=target,
                 risk=Risk.SAFE,
-                after={"schedule": "required", "job_type": item.job_type},
-                reason="declared as required, item has no schedule",
-                metadata=metadata,
+                after={
+                    "every_minutes": watch.schedule.interval_minutes,
+                    "from": configuration["startDateTime"],
+                    "until": configuration["endDateTime"],
+                    "timezone": watch.schedule.timezone,
+                    "enabled": watch.schedule.enabled,
+                },
+                reason="declared, item has no schedule",
+                # apply sends exactly what plan showed: the body is decided here, not
+                # recomputed later from a clock that has moved on.
+                metadata={
+                    **metadata,
+                    "configuration": configuration,
+                    "enabled": watch.schedule.enabled,
+                },
             )
         )
 
@@ -247,16 +260,45 @@ def project(observed: Observed, changes: list[Change]) -> Observed:
 
 
 async def apply(changes: list[Change], bus) -> list[Outcome]:
-    """Not implemented: this module reads and plans.
+    """Create the declared schedules and start the planned runs, in plan order.
 
-    Creating a schedule or starting a run writes to the tenant, and neither has been
-    verified live. Refusing here keeps `afab apply` honest rather than half-acting.
+    Stops at the first failure: a later change may well depend on an earlier one, and
+    the runner reports what was not attempted.
     """
-    return [
-        Outcome(
-            change=change,
-            ok=False,
-            detail="job-health plans only; applying a job change is not implemented yet",
+    outcomes: list[Outcome] = []
+    for change in changes:
+        try:
+            outcomes.append(await _apply_one(change, bus))
+        except Exception as exc:
+            outcomes.append(
+                Outcome(change=change, ok=False, detail=f"{type(exc).__name__}: {exc}")
+            )
+        if not outcomes[-1].ok:
+            break
+    return outcomes
+
+
+async def _apply_one(change: Change, bus) -> Outcome:
+    where = {
+        "workspaceId": change.metadata["workspace_id"],
+        "itemId": change.metadata["item_id"],
+        "jobType": change.metadata["job_type"],
+    }
+
+    if change.action == "job.schedule":
+        body = await bus.call(
+            "create_item_schedule",
+            **where,
+            enabled=change.metadata["enabled"],
+            configuration=change.metadata["configuration"],
         )
-        for change in changes[:1]
-    ]
+        schedule_id = (body or {}).get("id")
+        return Outcome(change=change, ok=True, output={"schedule_id": schedule_id})
+
+    if change.action == "job.rerun":
+        # 202 with a Location header and no body: started is all the API promises. The
+        # run's outcome shows up in `list_item_job_instances` on the next plan.
+        await bus.call("run_item_job", **where)
+        return Outcome(change=change, ok=True, detail="run started", output={})
+
+    return Outcome(change=change, ok=False, detail=f"unknown action {change.action!r}")

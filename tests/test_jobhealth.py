@@ -7,11 +7,13 @@ import pytest
 from pydantic import ValidationError
 
 from afabric.kernel.desired import PolicyConfig
+from afabric.model.change import Change, Risk
 from afabric.modules.jobhealth import process
 from afabric.modules.jobhealth.model import Config
 
 NOW = datetime(2026, 9, 13, 12, 0, tzinfo=UTC)
 POLICY = PolicyConfig()
+SCHEDULE = {"interval_minutes": 60, "timezone": "W. Europe Standard Time"}
 
 ITEMS = [
     {"id": "nb1", "displayName": "nb_bronze", "type": "Notebook"},
@@ -78,7 +80,7 @@ def test_a_watch_must_watch_something():
 def test_an_item_type_without_a_job_type_is_refused():
     with pytest.raises(ValidationError, match="no job type known for Lakehouse"):
         Config.model_validate(
-            [{"workspace": "faf_dev", "types": ["Lakehouse"], "schedule": "required"}]
+            [{"workspace": "faf_dev", "types": ["Lakehouse"], "schedule": SCHEDULE}]
         )
 
 
@@ -103,7 +105,7 @@ def test_schedules_are_only_fetched_when_declared():
     assert not [c for c in bus.calls if c[0] == "list_item_schedules"]
 
     bus = FakeBus()
-    _observe(bus, _config(items="nb_bronze", schedule="required"))
+    _observe(bus, _config(items="nb_bronze", schedule=SCHEDULE))
     [(_, args)] = [c for c in bus.calls if c[0] == "list_item_schedules"]
     assert args["jobType"] == "RunNotebook"
 
@@ -120,14 +122,31 @@ def test_a_missing_workspace_is_recorded_and_refuses_planning():
 # --- plan -------------------------------------------------------------------------
 
 
-def test_plans_a_schedule_where_one_is_required_and_missing():
+def test_plans_a_schedule_where_one_is_declared_and_missing():
     bus = FakeBus(schedules={"nb1": [{"id": "s1", "enabled": True}]})
-    desired = _config(items="nb_*", schedule="required", rerun_failed=False)
+    desired = _config(items="nb_*", schedule=SCHEDULE, rerun_failed=False)
 
     changes = process.plan(desired, _observe(bus, desired), POLICY, now=NOW)
 
     assert [(c.action, c.target) for c in changes] == [("job.schedule", "faf_dev/nb_gold")]
     assert changes[0].risk.value == "safe"
+
+
+def test_the_body_apply_will_send_is_decided_while_planning():
+    bus = FakeBus()
+    desired = _config(items="nb_bronze", schedule=SCHEDULE, rerun_failed=False)
+
+    [change] = process.plan(desired, _observe(bus, desired), POLICY, now=NOW)
+
+    # An hour after the plan ran, and a year of it, rendered without an offset.
+    assert change.metadata["configuration"] == {
+        "type": "Cron",
+        "interval": 60,
+        "localTimeZoneId": "W. Europe Standard Time",
+        "startDateTime": "2026-09-13T13:00:00",
+        "endDateTime": "2027-09-13T13:00:00",
+    }
+    assert change.after["every_minutes"] == 60
 
 
 def test_plans_a_rerun_for_a_failed_newest_run():
@@ -180,7 +199,7 @@ def test_nothing_is_planned_when_the_expectation_holds():
         runs={"nb1": [_run("nb1", "Completed", 1)]},
         schedules={"nb1": [{"id": "s1"}]},
     )
-    desired = _config(items="nb_bronze", schedule="required", stale_after_hours=24)
+    desired = _config(items="nb_bronze", schedule=SCHEDULE, stale_after_hours=24)
     assert process.plan(desired, _observe(bus, desired), POLICY, now=NOW) == []
 
 
@@ -189,7 +208,7 @@ def test_nothing_is_planned_when_the_expectation_holds():
 
 def test_planning_against_the_projection_is_empty():
     bus = FakeBus(runs={"nb1": [_run("nb1", "Failed", 1)]})
-    desired = _config(items="nb_bronze", schedule="required", stale_after_hours=24)
+    desired = _config(items="nb_bronze", schedule=SCHEDULE, stale_after_hours=24)
     observed = _observe(bus, desired)
 
     changes = process.plan(desired, observed, POLICY, now=NOW)
@@ -204,12 +223,77 @@ def test_planning_against_the_projection_is_empty():
 # --- apply ------------------------------------------------------------------------
 
 
-def test_apply_refuses_rather_than_half_acting():
-    bus = FakeBus(runs={"nb1": [_run("nb1", "Failed", 1)]})
-    desired = _config(items="nb_*")
+class WritingBus(FakeBus):
+    """Serves the two write endpoints, and can be told to fail one."""
+
+    def __init__(self, fail=None, **kwargs):
+        super().__init__(**kwargs)
+        self.fail = fail
+
+    async def call(self, name, **args):
+        if name in {"create_item_schedule", "run_item_job"}:
+            self.calls.append((name, args))
+            if name == self.fail:
+                raise RuntimeError("tenant said no")
+            # run_item_job answers 202 with no body; the ToolBus hands back None.
+            return {"id": "sched-1"} if name == "create_item_schedule" else None
+        return await super().call(name, **args)
+
+
+def _apply(bus, **rules):
+    desired = _config(**rules)
     changes = process.plan(desired, _observe(bus, desired), POLICY, now=NOW)
+    return changes, asyncio.run(process.apply(changes, bus))
 
-    outcomes = asyncio.run(process.apply(changes, bus))
 
-    assert len(outcomes) == 1 and not outcomes[0].ok
-    assert "not implemented" in outcomes[0].detail
+def test_apply_creates_the_schedule_it_planned():
+    bus = WritingBus()
+    changes, outcomes = _apply(bus, items="nb_bronze", schedule=SCHEDULE, rerun_failed=False)
+
+    assert [o.ok for o in outcomes] == [True]
+    assert outcomes[0].output == {"schedule_id": "sched-1"}
+    [(name, args)] = [c for c in bus.calls if c[0] == "create_item_schedule"]
+    assert args == {
+        "workspaceId": "faf_dev-id",
+        "itemId": "nb1",
+        "jobType": "RunNotebook",
+        "enabled": True,
+        "configuration": changes[0].metadata["configuration"],
+    }
+
+
+def test_apply_starts_the_run_it_planned():
+    bus = WritingBus(runs={"nb1": [_run("nb1", "Failed", 1)]})
+    _, outcomes = _apply(bus, items="nb_bronze")
+
+    assert [o.ok for o in outcomes] == [True]
+    assert outcomes[0].detail == "run started"
+    assert [c for c in bus.calls if c[0] == "run_item_job"] == [
+        ("run_item_job", {"workspaceId": "faf_dev-id", "itemId": "nb1", "jobType": "RunNotebook"})
+    ]
+
+
+def test_apply_stops_at_the_first_failure():
+    bus = WritingBus(fail="create_item_schedule")
+    changes, outcomes = _apply(bus, items="nb_*", schedule=SCHEDULE, rerun_failed=False)
+
+    assert len(changes) == 2 and len(outcomes) == 1
+    assert not outcomes[0].ok and "tenant said no" in outcomes[0].detail
+    # The second item was never touched.
+    assert len([c for c in bus.calls if c[0] == "create_item_schedule"]) == 1
+
+
+def test_apply_refuses_an_action_it_does_not_know():
+    bus = WritingBus()
+    stray = Change(
+        module="job-health",
+        action="job.dance",
+        target="faf_dev/nb_bronze",
+        risk=Risk.SAFE,
+        metadata={"workspace_id": "w", "item_id": "i", "job_type": "RunNotebook"},
+    )
+
+    [outcome] = asyncio.run(process.apply([stray], bus))
+
+    assert not outcome.ok and "unknown action" in outcome.detail
+    assert bus.calls == []

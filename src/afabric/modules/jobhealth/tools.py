@@ -24,4 +24,17 @@ SPECS = [
         rest=RestOp("GET", "/workspaces/{workspaceId}/items/{itemId}/jobs/{jobType}/schedules"),
         paged=True,
     ),
+    # --- writes ---------------------------------------------------------------
+    ToolSpec(
+        name="create_item_schedule",
+        description="Create a schedule for one item and job type. At most 20 per item.",
+        rest=RestOp("POST", "/workspaces/{workspaceId}/items/{itemId}/jobs/{jobType}/schedules"),
+    ),
+    ToolSpec(
+        name="run_item_job",
+        description="Start one on-demand run of an item's job.",
+        rest=RestOp("POST", "/workspaces/{workspaceId}/items/{itemId}/jobs/{jobType}/instances"),
+        # Answers 202 with a Location header and no operation id, so the ToolBus hands
+        # back None. Started is all the API says; the run's outcome comes later.
+    ),
 ]

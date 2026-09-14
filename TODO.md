@@ -69,8 +69,11 @@ Erledigte Altlasten aus Phase 3:
       `Inactive` (beide Transporte melden das gleich). Trotzdem liefen `workspace.create`
       *mit* Capacity und `workspace.assign_capacity` durch, beide mit
       `capacityAssignmentProgress: Completed`. Die frühere Annahme, das scheitere,
-      stimmt für Workspace- und Ordner-Operationen nicht. Ob das Anlegen von *Items*
-      eine laufende Capacity braucht, ist damit nicht beantwortet.
+      stimmt für Workspace- und Ordner-Operationen nicht.
+      **Nachtrag 2026-09-14:** Auch ein Notebook-Lauf geht. `nb_seed_probe` lief über
+      `job.rerun` in 30 Sekunden durch, `status: Completed`, bei weiterhin `Inactive`
+      gemeldeter Capacity. Der gemeldete Zustand sagt also wenig über die Nutzbarkeit —
+      möglicherweise weckt Fabric die Capacity bei Bedarf selbst.
 - [ ] Für Schreibtests wieder einen Wegwerf-Workspace nehmen, nie `faf_dev`.
       Die YAMLs von Phase 3 liegen unter `.afabric/e2e/` (gitignored, lokal).
 
@@ -128,9 +131,13 @@ der Erwartung; `apply` verweigert ausdrücklich, statt halb zu handeln.
 jobs:
   - workspace: faf_dev
     items: "*"              # Glob über Anzeigenamen
-    schedule: required      # plant job.schedule, wo keiner existiert
     rerun_failed: true      # plant job.rerun, wenn der neueste Lauf fehlschlug
     stale_after_hours: 24   # plant job.rerun, wenn der letzte Erfolg zu alt ist
+    schedule:               # deklariert = anlegen, wo keiner existiert
+      interval_minutes: 1440
+      timezone: W. Europe Standard Time
+      start: 2030-01-01T03:00:00   # ohne Angabe: eine Stunde nach dem Lauf
+      end: 2030-12-31T03:00:00     # ohne Angabe: ein Jahr nach start
 ```
 
 **Live verifiziert:** 10 Changes über 5 Items in `faf_dev`, beide Transporte identisch.
@@ -152,10 +159,20 @@ Gelernt, aus dem Tenant, nicht aus der Doku:
 ein Verzeichnis. Für die zwei neuen API-Endpunkte musste zunächst `kernel/tools.py` ran —
 das ist am 2026-09-14 behoben, die Specs liegen jetzt im Modul (siehe oben).
 
-Offen an diesem Modul:
+**Schreibpfad seit 2026-09-14, live verifiziert.** `apply` legt Zeitpläne an und startet
+Läufe, in Plan-Reihenfolge, Abbruch beim ersten Fehler.
 
-- [ ] `apply`: Zeitplan anlegen (`POST .../jobs/{jobType}/schedules`) und Lauf starten
-      (`POST .../jobs/instances?jobType=...`). Schreibpfad, bewusst vertagt.
+- Die Konfiguration entsteht **beim Planen**, nicht beim Anwenden: `apply` sendet genau
+  den Body, den die Plan-Tabelle gezeigt hat. Sonst verschöbe sich ein Default-Start
+  zwischen Plan und Apply, weil die Uhr weiterläuft.
+- Verifiziert an `nb_seed_probe`: Zeitplan mit Start 2030 angelegt (danach wieder
+  gelöscht), Lauf gestartet, Antwort **202 ohne** `x-ms-operation-id` — nur `Location`.
+  Der ToolBus gibt dafür `None` zurück, `apply` kommt damit klar. Mehr als „gestartet"
+  sagt die API nicht; das Ergebnis steht beim nächsten `plan` in den Job-Instanzen.
+- `start` in der Vergangenheit löst laut API sofort einen Lauf aus. Deshalb ist der
+  Standard eine Stunde in der Zukunft und nicht „jetzt".
+
+Offen an diesem Modul:
 - [ ] Zeitplan-Inhalt wird nicht verglichen — nur „existiert" oder „fehlt". Intervall,
       Zeitzone und `enabled` bleiben unbeachtet.
 - [ ] Auto-Disable des Schedulers (nach ~10 Fehlläufen) wird nicht erkannt.

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any, Literal
+from datetime import datetime, timedelta
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
@@ -17,7 +17,55 @@ JOB_TYPES: dict[str, str] = {
     "Dataflow": "Refresh",
 }
 
-Schedule = Literal["ignore", "required"]
+class ScheduleSpec(BaseModel):
+    """A schedule to create where an item has none.
+
+    Only Fabric's `Cron` shape: every `interval_minutes`, between two moments. The daily,
+    weekly and monthly shapes exist in the API and are not declared here yet.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    interval_minutes: int = Field(ge=1, le=5_270_400)
+    """1 minute to 10 years, the range the API accepts."""
+
+    timezone: str = "UTC"
+    """Windows time zone id, e.g. `W. Europe Standard Time`."""
+
+    start: datetime | None = None
+    """When it first runs. Default: an hour from the moment apply runs.
+
+    A start in the past triggers a run immediately — the API says so — which is not what
+    declaring a schedule usually means.
+    """
+
+    end: datetime | None = None
+    """When it stops. Default: a year after `start`."""
+
+    enabled: bool = True
+
+    @model_validator(mode="after")
+    def _ends_after_it_starts(self) -> ScheduleSpec:
+        if self.start and self.end and self.end <= self.start:
+            raise ValueError("end must be later than start")
+        return self
+
+    def configuration(self, now: datetime) -> dict[str, Any]:
+        """The `CronScheduleConfig` body, with the defaults filled in."""
+        start = self.start or now + timedelta(hours=1)
+        end = self.end or start + timedelta(days=365)
+        return {
+            "type": "Cron",
+            "interval": self.interval_minutes,
+            "localTimeZoneId": self.timezone,
+            "startDateTime": _stamp(start),
+            "endDateTime": _stamp(end),
+        }
+
+
+def _stamp(moment: datetime) -> str:
+    """Fabric wants `YYYY-MM-DDTHH:mm:ss`, no offset, understood as the given zone."""
+    return moment.replace(tzinfo=None, microsecond=0).isoformat()
 
 
 # --- desired ----------------------------------------------------------------------
@@ -35,8 +83,8 @@ class WatchSpec(BaseModel):
     types: list[str] = Field(default_factory=lambda: sorted(JOB_TYPES))
     """Item types to watch. Anything outside `JOB_TYPES` has no schedulable job."""
 
-    schedule: Schedule = "ignore"
-    """`required` plans a schedule for every watched item that has none."""
+    schedule: ScheduleSpec | None = None
+    """Declared: every watched item without a schedule gets this one."""
 
     rerun_failed: bool = False
     """Plan a rerun when an item's newest run failed."""
@@ -46,7 +94,7 @@ class WatchSpec(BaseModel):
 
     @model_validator(mode="after")
     def _watches_something(self) -> WatchSpec:
-        if self.schedule == "ignore" and not self.rerun_failed and self.stale_after_hours is None:
+        if self.schedule is None and not self.rerun_failed and self.stale_after_hours is None:
             raise ValueError(
                 "declares nothing to watch — set schedule, rerun_failed or stale_after_hours"
             )
