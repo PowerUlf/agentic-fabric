@@ -72,10 +72,11 @@ owning one top-level key.
 Modules never import each other. They depend on capabilities declared at the ToolBus —
 `workspace.ensure` is consumed by name, not by import.
 
-Three exist: `workspace` reconciles workspaces, folders and roles; `job-health` watches
-job runs and schedules; `governance` audits house rules. The last two read and plan —
-their `apply` refuses rather than acting on something nothing has verified. Planned:
-`deploy` and `data-engineering`.
+Four exist: `workspace` reconciles workspaces, folders and roles; `job-health` watches job
+runs and schedules; `governance` audits house rules; `deploy` compares item definitions
+between two workspaces and plans the promotion. The last three read and plan — their
+`apply` refuses rather than acting on something nothing has verified. Planned:
+`data-engineering`.
 
 The third module cost a directory and nothing else — no kernel edit, not even for its
 tools. That was the measure the architecture set itself.

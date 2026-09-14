@@ -199,15 +199,54 @@ Offen an diesem Modul:
 - [ ] `apply` bewusst nicht implementiert: Jeder Befund braucht eine Entscheidung, die
       das Modul nicht treffen kann — welche Beschreibung, welche Capacity, welcher Name.
 
+## Phase 5 — Modul 4: `deploy` (2026-09-14)
+
+Vergleicht Item-Definitionen zwischen Quell- und Ziel-Workspace und plant die Promotion.
+Bewusst **nicht** über `fabric-cicd`: die Bibliothek veröffentlicht, sie zeigt nichts
+vorher an. Ein ehrlicher `plan` wäre darauf nicht baubar gewesen.
+
+```yaml
+deploy:
+  - source: faf_dev
+    target: afab_e2e
+    items: "*"
+    types: [Notebook, DataPipeline]
+```
+
+- Gleichheit = gleicher SHA-256 über die Definitionsteile, **ohne** `.platform`. Die Datei
+  enthält Anzeigename, logische Id und Heimat-Workspace und unterscheidet sich zwischen
+  zwei Workspaces zwangsläufig — mitgehasht wäre jedes Item für immer „geändert".
+- Identität über Name **und** Typ. Ids stimmen zwischen Workspaces nie überein.
+- `policy.prune` plant Löschungen im Ziel, destruktiv wie überall.
+
+**Live verifiziert:** 5 `item.create` für `faf_dev` → `afab_e2e`, über beide Transporte
+identisch.
+
+**Nebenbei erledigt: der LRO-Pfad ist live gelaufen.** `getDefinition` antwortet mit
+**202**, `RestClient.await_operation` holt das Ergebnis. Der Code, der laut diesem TODO
+nie ausgeführt worden war, trägt also.
+
+Offen an diesem Modul:
+
+- [ ] `apply` bewusst nicht implementiert. Ein Item aus fremder Definition anzulegen heißt,
+      die Ids darin umzuschreiben — die Lakehouse-Id in `%%configure` ist je Workspace eine
+      andere. Genau dafür hat `fabric-cicd` Parameter-Dateien. Ohne diesen Schritt wäre
+      Schreiben unehrlich.
+- [ ] Nur `Notebook` und `DataPipeline` als Standard. Andere Typen sind deklarierbar, aber
+      ungetestet.
+- [ ] Der Fall „Item existiert in beiden, Definition identisch" ist nur im Unit-Test
+      belegt; `afab_e2e` ist leer, live kam nur der Create-Fall vor.
+
 ## Offen, ohne Eile
 
 - [ ] `_create` plant `role.grant` auch für die eigene Identität. Fabric macht den
       Ersteller automatisch zum Admin, ein solcher Grant würde beim Anlegen scheitern.
       In Phase 3 umgangen, indem die E2E-YAML keine eigene Rolle deklariert.
-- [ ] LRO über MCP ungetestet: `RestBackend` wartet bei 202 auf die Operation,
-      `McpBackend` nicht. Keine der Workspace- und Ordner-Operationen kam bisher
-      asynchron zurück. Der MCP-Server bietet `get_operation_state`/`get_operation_result`,
-      falls es nötig wird.
+- [x] **LRO über REST live geprüft (2026-09-14).** `getDefinition` im `deploy`-Modul
+      antwortet mit 202, `await_operation` liefert das Ergebnis. Offen bleibt nur der
+      MCP-eigene Pfad: `McpBackend` wartet nicht, und der MCP-Server bietet dafür
+      `get_operation_state`/`get_operation_result`. Bisher kam über MCP nichts asynchron
+      zurück — Tools ohne MCP-Gegenstück laufen ohnehin über den REST-Fallback.
 - [x] **`assign_to_capacity` live geprüft (2026-09-13)** — und damit der REST-Fallback
       über den MCP-Transport, das einzige architektonisch neue Stück im ToolBus.
       Vorgehen, falls nochmal nötig: Workspace *ohne* `capacity` deklarieren und anlegen,

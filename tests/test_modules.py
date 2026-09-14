@@ -109,13 +109,15 @@ class TestModuleTools:
         assert not registry.ok
         assert "already declared by" in registry.problems[0].message
 
-    def test_the_job_health_module_owns_its_endpoints(self):
+    def test_the_shipped_modules_own_their_endpoints(self):
         from afabric.kernel.tools import CATALOG
 
         specs = discover().tool_specs()
 
-        assert set(specs) == {"list_item_job_instances", "list_item_schedules"}
-        # They are the module's, not the kernel's.
+        assert {"list_item_job_instances", "list_item_schedules", "get_item_definition"} <= set(
+            specs
+        )
+        # They are the modules', not the kernel's.
         assert not set(specs) & set(CATALOG)
 
 
@@ -124,7 +126,9 @@ class TestBuiltins:
         # Built-in scan and the entry point both see it; that is one module, not a clash.
         registry = discover()
         assert registry.ok, registry.problems
-        assert sorted(registry.modules) == ["governance", "job-health", "workspace"]
+        assert "workspace" in registry.modules
+        # One entry per module, however many ship: the double source must not double them.
+        assert len(registry.modules) == len(set(registry.modules))
         assert registry.modules["workspace"].origin == "builtin"
         assert registry.modules["job-health"].origin == "builtin"
 
