@@ -75,10 +75,11 @@ def test_only_get_tools_are_offered():
     assert not names & {"create_workspace", "delete_workspace", "assign_to_capacity"}
 
 
-def test_schema_requires_path_placeholders_only():
+def test_schema_requires_path_placeholders_and_offers_the_rest():
     schema = agent.tool_schema(spec("list_items"))
     assert schema["required"] == ["workspaceId"]
-    assert set(schema["properties"]) == {"workspaceId"}
+    # The type filter is optional and reaches the API as a query parameter.
+    assert set(schema["properties"]) == {"workspaceId", "type"}
     assert agent.tool_schema(spec("list_workspaces"))["required"] == []
 
 

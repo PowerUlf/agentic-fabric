@@ -175,5 +175,12 @@ class Observed(BaseModel):
     capacities: dict[str, str] = {}
     """Capacity display name -> id."""
 
+    identity: str | None = None
+    """Entra object id of whoever observed, when the token revealed it.
+
+    Needed at plan time: Fabric makes the creator of a workspace an Admin, so granting
+    that same principal again would fail on a workspace this run creates.
+    """
+
     def by_name(self) -> dict[str, ObservedWorkspace]:
         return {w.name: w for w in self.workspaces}

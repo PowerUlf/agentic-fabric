@@ -256,9 +256,11 @@ Offen an diesem Modul:
 
 ## Offen, ohne Eile
 
-- [ ] `_create` plant `role.grant` auch für die eigene Identität. Fabric macht den
-      Ersteller automatisch zum Admin, ein solcher Grant würde beim Anlegen scheitern.
-      In Phase 3 umgangen, indem die E2E-YAML keine eigene Rolle deklariert.
+- [x] **`_create` überspringt die eigene Identität (2026-09-14).** `observe` legt
+      `bus.identity` in den beobachteten Zustand, `plan` lässt den Grant für genau diesen
+      Principal beim *Anlegen* weg — nur dort, denn auf einem bestehenden Workspace ist
+      eine fehlende eigene Rolle echte Drift. Live geprüft mit `faf_role_probe`: Plan
+      enthielt nur `workspace.create`, Anwenden lief durch, `plan` danach leer.
 - [x] **LRO über REST live geprüft (2026-09-14).** `getDefinition` im `deploy`-Modul
       antwortet mit 202, `await_operation` liefert das Ergebnis. Offen bleibt nur der
       MCP-eigene Pfad: `McpBackend` wartet nicht, und der MCP-Server bietet dafür
@@ -275,9 +277,10 @@ Offen an diesem Modul:
       als „Operation ohne Ergebnis". Kein Aufruf in Phase 3 kam asynchron zurück, der
       Code ist also nie gelaufen. Fällt im Zweifel sicher aus: ein unerwarteter Fehler
       fliegt, statt als Ergebnis durchzugehen.
-- [ ] **GET-Argumente außerhalb des Pfads gehen über REST verloren.** `RestBackend.call`
-      wirft `leftover` bei GET weg, `list_items(type=...)` liefert über `-t rest` also
-      ungefiltert, über MCP gefiltert. Der Agent bietet `type` deshalb nicht an. Fix:
-      `leftover` als Query-Parameter senden (Namen je Tool prüfen).
+- [x] **GET-Argumente außerhalb des Pfads gehen nicht mehr verloren (2026-09-14).**
+      `RestBackend` reicht sie als Query-Parameter durch, `get_all` trägt sie über alle
+      Seiten mit — sonst wäre ab Seite zwei eine andere Frage beantwortet worden. Der
+      Agent bietet solche Argumente wieder an, `list_items(type=...)` inklusive.
+      Live: `faf_dev` hat 7 Items, mit `type=Notebook` genau 4 — über beide Transporte.
 - [ ] Principal-IDs vs. E-Mail — Graph MCP Server, später
 - [ ] Service Principal für den unbeaufsichtigten REST-Pfad — Phase 5

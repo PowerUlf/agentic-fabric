@@ -72,23 +72,29 @@ class RestClient:
 
         raise AssertionError("unreachable")
 
-    async def get_all(self, path: str, *, collection: str = "value") -> list[dict[str, Any]]:
-        """GET a paginated collection, following continuation to the end."""
+    async def get_all(
+        self, path: str, *, collection: str = "value", params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """GET a paginated collection, following continuation to the end.
+
+        `params` are the caller's query arguments; they ride along on every page, since
+        dropping them after the first would page through a differently filtered list.
+        """
         items: list[dict[str, Any]] = []
-        params: dict[str, str] = {}
+        query = dict(params or {})
 
         while True:
-            response = await self.request("GET", path, params=params or None)
+            response = await self.request("GET", path, params=query or None)
             body = response.json()
             items.extend(body.get(collection, []))
 
             token = body.get("continuationToken")
             if not token:
                 return items
-            params = {"continuationToken": token}
+            query = {**(params or {}), "continuationToken": token}
 
-    async def get_one(self, path: str) -> dict[str, Any]:
-        response = await self.request("GET", path)
+    async def get_one(self, path: str, *, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        response = await self.request("GET", path, params=params or None)
         return response.json()
 
     async def await_operation(self, operation_id: str) -> dict[str, Any] | None:

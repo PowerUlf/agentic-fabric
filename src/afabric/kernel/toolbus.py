@@ -87,9 +87,11 @@ class RestBackend:
                 return await self._client.await_operation(operation_id)
             return response.json() if response.content else None
 
+        # Arguments the path did not consume are query parameters on a GET. Dropping
+        # them would answer an unfiltered question as if it were the one asked.
         if tool.paged:
-            return await self._client.get_all(path, collection=tool.collection)
-        return await self._client.get_one(path)
+            return await self._client.get_all(path, collection=tool.collection, params=leftover)
+        return await self._client.get_one(path, params=leftover)
 
 
 def _mcp_payload(tool: ToolSpec, args: dict[str, Any]) -> dict[str, Any]:

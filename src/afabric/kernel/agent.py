@@ -104,17 +104,17 @@ def _catalog(bus) -> dict[str, ToolSpec]:
 
 
 def tool_schema(spec: ToolSpec) -> dict[str, Any]:
-    """JSON Schema for a catalog tool's arguments.
+    """JSON Schema for a tool's arguments.
 
-    Only path placeholders become arguments. Other arguments exist in the catalog (the
-    `type` filter on `list_items`), but the REST backend does not send them on a GET, so
-    offering them would hand the model silently unfiltered results on one transport.
+    Path placeholders are required; anything else the catalog names for the tool (the
+    `type` filter on `list_items`) is optional and travels as a query parameter.
     """
-    names = sorted({name for _, name, _, _ in Formatter().parse(spec.rest.path) if name})
+    required = sorted({name for _, name, _, _ in Formatter().parse(spec.rest.path) if name})
+    optional = sorted(set(spec.mcp_args) - set(required))
     return {
         "type": "object",
-        "properties": {name: {"type": "string"} for name in names},
-        "required": names,
+        "properties": {name: {"type": "string"} for name in required + optional},
+        "required": required,
         "additionalProperties": False,
     }
 

@@ -84,6 +84,38 @@ class TestCreation:
         assert create.risk is Risk.SAFE
         assert create.after["capacity_id"] == observed.capacities["cap-f4"]
 
+    def test_own_admin_role_is_not_granted_on_a_workspace_we_create(self, observed):
+        # Fabric makes the creator an Admin; planning that grant would fail on apply.
+        observed.identity = ME
+        want = desired(
+            {
+                "name": "sales",
+                "roles": [
+                    {"principal": ME, "role": "Admin"},
+                    {"principal": OTHER, "role": "Viewer"},
+                ],
+            }
+        )
+
+        changes = plan(want, observed, KEEP)
+
+        assert actions(changes) == ["workspace.create", "role.grant"]
+        assert changes[1].target.endswith(OTHER)
+
+    def test_without_a_known_identity_every_declared_role_is_granted(self, observed):
+        observed.identity = None
+        want = desired({"name": "sales", "roles": [{"principal": ME, "role": "Admin"}]})
+
+        assert actions(plan(want, observed, KEEP)) == ["workspace.create", "role.grant"]
+
+    def test_an_existing_workspace_still_grants_our_own_role(self, observed):
+        # Only creation is special: on a workspace that already exists, a missing
+        # assignment for the caller is real drift.
+        observed.identity = OTHER
+        want = desired({"name": "team_dev", "roles": [{"principal": OTHER, "role": "Viewer"}]})
+
+        assert actions(plan(want, observed, KEEP)) == ["role.grant"]
+
     def test_role_grant_is_never_safe(self, observed):
         want = desired({"name": "team_dev", "roles": [{"principal": OTHER, "role": "Viewer"}]})
         (grant,) = plan(want, observed, KEEP)

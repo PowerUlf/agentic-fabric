@@ -50,6 +50,7 @@ async def observe(bus, desired: Config) -> Observed:
     declared = {w.name for w in desired}
 
     observed = Observed(
+        identity=getattr(bus, "identity", None),
         capacities={c["displayName"]: c["id"] for c in _rows(capacities)},
     )
 
@@ -102,7 +103,7 @@ def plan(desired: Config, observed: Observed, policy: PolicyConfig) -> list[Chan
         capacity_id = _resolve_capacity(spec, observed)
         current = existing.get(spec.name)
         if current is None:
-            changes.extend(_create(spec, capacity_id))
+            changes.extend(_create(spec, capacity_id, observed.identity))
         else:
             changes.extend(_converge(spec, current, capacity_id, policy))
 
@@ -137,7 +138,7 @@ def _resolve_capacity(spec: WorkspaceSpec, observed: Observed) -> str | None:
         ) from None
 
 
-def _create(spec: WorkspaceSpec, capacity_id: str | None) -> list[Change]:
+def _create(spec: WorkspaceSpec, capacity_id: str | None, identity: str | None) -> list[Change]:
     changes = [
         Change(
             module=MODULE,
@@ -154,7 +155,13 @@ def _create(spec: WorkspaceSpec, capacity_id: str | None) -> list[Change]:
         )
     ]
     changes.extend(_folder_create(spec.name, None, name) for name in spec.folders)
-    changes.extend(_role_grant(spec.name, None, role) for role in spec.roles)
+    # Fabric makes whoever creates a workspace its Admin. Granting that same principal
+    # again fails, so the declaration is satisfied without planning it.
+    changes.extend(
+        _role_grant(spec.name, None, role)
+        for role in spec.roles
+        if identity is None or str(role.principal) != identity
+    )
     return changes
 
 

@@ -5,7 +5,7 @@ import asyncio
 import pytest
 
 from afabric.cli import _as_rows, _describe
-from afabric.kernel.toolbus import ToolBus, _fill, _mcp_payload
+from afabric.kernel.toolbus import RestBackend, ToolBus, _fill, _mcp_payload
 from afabric.kernel.tools import CATALOG, RestOp, ToolSpec, spec
 
 
@@ -77,6 +77,37 @@ class TestFallback:
         bus, mcp, rest = self._bus()
         assert asyncio.run(bus.call("list_workspaces")) == "mcp"
         assert rest.calls == []
+
+
+class TestGetArguments:
+    """Arguments the path does not consume are query parameters, not silence."""
+
+    class _Client:
+        def __init__(self):
+            self.seen = {}
+
+        async def get_all(self, path, *, collection="value", params=None):
+            self.seen = {"path": path, "collection": collection, "params": params}
+            return []
+
+        async def get_one(self, path, *, params=None):
+            self.seen = {"path": path, "params": params}
+            return {}
+
+    def _bus(self):
+        client = self._Client()
+        return ToolBus(RestBackend(client), settings=None), client
+
+    def test_a_filter_reaches_the_api(self):
+        bus, client = self._bus()
+        asyncio.run(bus.call("list_items", workspaceId="w1", type="Notebook"))
+        assert client.seen["path"] == "/workspaces/w1/items"
+        assert client.seen["params"] == {"type": "Notebook"}
+
+    def test_a_tool_without_extra_arguments_sends_none(self):
+        bus, client = self._bus()
+        asyncio.run(bus.call("get_workspace", workspaceId="w1"))
+        assert client.seen == {"path": "/workspaces/w1", "params": {}}
 
 
 class TestModuleTools:
