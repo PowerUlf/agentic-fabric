@@ -36,6 +36,7 @@ afab = "afabric.cli:app"
 [project.entry-points."afabric.modules"]
 workspace = "afabric.modules.workspace.manifest:MANIFEST"
 job-health = "afabric.modules.jobhealth.manifest:MANIFEST"
+governance = "afabric.modules.governance.manifest:MANIFEST"
 
 [build-system]
 requires = ["hatchling"]

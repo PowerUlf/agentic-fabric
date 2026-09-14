@@ -160,6 +160,45 @@ Offen an diesem Modul:
       Zeitzone und `enabled` bleiben unbeachtet.
 - [ ] Auto-Disable des Schedulers (nach ~10 Fehlläufen) wird nicht erkannt.
 
+## Phase 5 — Modul 3: `governance` (2026-09-14)
+
+Der eigentliche Gradmesser-Test, und er ist bestanden: **kein Kernel-Eingriff**. Geändert
+wurden nur `src/afabric/modules/governance/`, ein Eintrag in `pyproject.toml` und eine
+Testzusicherung über die Zahl der eingebauten Module. Keine neuen Endpunkte nötig, alle
+Regeln lesen, was der Katalog ohnehin serviert.
+
+```yaml
+governance:
+  scope: "*"                    # Glob über Workspace-Namen, Personal nie im Scope
+  workspace_description: true
+  capacity_required: true
+  min_admins: 1
+  item_description: [Notebook, DataPipeline, Lakehouse]
+  item_naming: "^[a-z][a-z0-9_]*$"
+```
+
+Ein Befund ist ein ganz normaler `Change`: `before` ist der Ist-Zustand, `after` die
+Forderung der Regel. Dadurch laufen Policy, Freigabe und Journal unverändert darüber.
+
+**Live verifiziert:** 2 Befunde über beide Transporte identisch — `faf_dev` ohne
+Beschreibung, Lakehouse `lh_probe` ohne Beschreibung. `apply` verweigert und verweist auf
+`workspaces:`, wo der Wert deklariert wird.
+
+Gelernt:
+
+- `list_items` liefert **kein** `folderId`. Eine Regel „jedes Item liegt in einem Ordner"
+  wäre also nicht ohne Weiteres möglich.
+- Abgeleitete Items (`SQLEndpoint`, `SemanticModel`) haben keine eigene Beschreibung und
+  lassen sich nicht einzeln umbenennen — sie fliegen raus, sonst meldet das Audit Rauschen,
+  an dem niemand etwas ändern kann.
+
+Offen an diesem Modul:
+
+- [ ] Nur Beschreibung, Capacity, Admin-Anzahl und Item-Namen. Keine Labels, keine
+      Domains, keine Endorsements.
+- [ ] `apply` bewusst nicht implementiert: Jeder Befund braucht eine Entscheidung, die
+      das Modul nicht treffen kann — welche Beschreibung, welche Capacity, welcher Name.
+
 ## Offen, ohne Eile
 
 - [ ] `_create` plant `role.grant` auch für die eigene Identität. Fabric macht den
