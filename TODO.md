@@ -1,7 +1,27 @@
-# TODO — Phase 5: zweites Modul
+# TODO — Phase 5: weitere Module
 
-Stand 2026-09-13. Phase 0 bis 4 sind fertig, committet und gepusht.
+Stand 2026-09-14. Phase 0 bis 4 sind fertig, committet und gepusht.
+Vier Module: `workspace`, `job-health`, `governance`, `deploy` — drei davon schreiben,
+`governance` meldet nur. 204 Tests.
 Plan: `docs/plan.md` (lokal, nicht im Repo)
+
+## Hier weitermachen
+
+Nichts ist halb fertig, alles ist committet und gepusht. Zur Auswahl, grob nach Gewicht:
+
+1. **`data-engineering`** — das letzte geplante Modul, Fernziel aus `docs/plan.md`.
+   Notebooks, Pipelines, Lakehouse-Schemata. Vorher entscheiden, was daran überhaupt
+   deklarierbar ist: `deploy` deckt das Ausrollen schon ab, `job-health` das Laufen.
+2. **`governance.apply`** — Item-Beschreibungen setzen. Klein, aber es heißt, Item-Metadaten
+   zu verwalten, was bisher kein Modul tut. Schließt den letzten offenen Befund
+   (`lh_probe` in `faf_dev` hat keine Beschreibung).
+3. **`deploy` vertiefen** — mehrere Stufen (dev → test → prod) und Parametrisierung über
+   Ids hinaus, etwa Verbindungszeichenfolgen.
+4. **E-Mail statt Principal-Id** — siehe „Offen, ohne Eile". Braucht eine
+   Graph-Zustimmung, also nichts für nebenbei.
+
+Der Tenant ist aufgeräumt: `afab_e2e` ist leer, keine Test-Workspaces, keine
+Test-Zeitpläne. `faf_dev` hat seit heute eine Beschreibung.
 
 ## Erledigt am 2026-09-14: Modul-eigene Tools
 
@@ -25,13 +45,15 @@ cd ~/omarchy/agentic-fabric
 
 # Mac: venv liegt außerhalb des Repos, die Repo-.venv gehört der VM.
 ~/.venvs/agentic-fabric/bin/afab status     # faf_dev, faf_dev ohne Login
-~/.venvs/agentic-fabric/bin/afab modules    # workspace + job-health, keine Probleme
-~/.venvs/agentic-fabric/bin/pytest -q       # 132 grün
+~/.venvs/agentic-fabric/bin/afab modules    # vier Module, keine Probleme
+~/.venvs/agentic-fabric/bin/pytest -q       # 204 grün
 
 # Lesende Läufe gegen den Tenant, beide lokal und gitignored. Nicht
 # examples/fabric.yaml nehmen — die nennt eine Capacity, die es hier nicht gibt.
 ~/.venvs/agentic-fabric/bin/afab plan -f .afabric/e2e/fabric.yaml
-~/.venvs/agentic-fabric/bin/afab plan -f .afabric/jobs/fabric.yaml   # job-health
+~/.venvs/agentic-fabric/bin/afab plan -f .afabric/jobs/fabric.yaml     # job-health
+~/.venvs/agentic-fabric/bin/afab plan -f .afabric/gov/fabric.yaml      # governance
+~/.venvs/agentic-fabric/bin/afab plan -f .afabric/deploy/fabric.yaml   # deploy
 ```
 
 ## Was Phase 3 am 2026-09-12 live bewiesen hat
