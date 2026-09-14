@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import re
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
@@ -30,6 +32,14 @@ class PromotionSpec(BaseModel):
 
     types: list[str] = Field(default_factory=lambda: ["Notebook", "DataPipeline"])
     """Item types to promote. Derived types are refused: they follow their parent."""
+
+    map: dict[str, str] = Field(default_factory=dict)
+    """Source item name -> target item name, for things this promotion does not carry.
+
+    A notebook attached to a lakehouse holds that lakehouse's id. If the lakehouse is not
+    promoted, the reference can only be resolved by being told which item in the target
+    stands for it.
+    """
 
     @model_validator(mode="after")
     def _distinct_and_deployable(self) -> PromotionSpec:
@@ -64,15 +74,20 @@ class Config(RootModel[list[PromotionSpec]]):
 
 
 def digest(definition: dict[str, Any] | None) -> str | None:
-    """A stable fingerprint of an item's definition, ignoring its platform metadata.
+    """A stable fingerprint of an item's definition, ignoring its platform metadata."""
+    if definition is None:
+        return None
+    return digest_parts(definition.get("parts", []))
+
+
+def digest_parts(parts: list[dict[str, Any]]) -> str | None:
+    """Fingerprint a list of definition parts.
 
     Parts come back in no guaranteed order, so they are sorted by path before hashing.
     """
-    if definition is None:
-        return None
     parts = sorted(
         (p.get("path", ""), p.get("payload", ""))
-        for p in definition.get("parts", [])
+        for p in parts
         if p.get("path") != PLATFORM_PART
     )
     if not parts:
@@ -86,12 +101,64 @@ def digest(definition: dict[str, Any] | None) -> str | None:
     return sha.hexdigest()
 
 
+GUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
+
+# The all-zero guid stands in .platform for "no logical id yet"; it is not a reference.
+EMPTY_GUID = "00000000-0000-0000-0000-000000000000"
+
+
+def references(definition: dict[str, Any] | None) -> set[str]:
+    """Every id a definition mentions, `.platform` aside.
+
+    A notebook holds the workspace and lakehouse it attaches to; a pipeline holds the
+    items it invokes. Promoting either without rewriting these means the copy reaches
+    back into the workspace it came from.
+    """
+    found: set[str] = set()
+    for part in (definition or {}).get("parts", []):
+        if part.get("path") == PLATFORM_PART:
+            continue
+        text = base64.b64decode(part.get("payload", "")).decode("utf-8", "replace")
+        found.update(guid.lower() for guid in GUID.findall(text))
+    return found - {EMPTY_GUID}
+
+
+def rewrite(definition: dict[str, Any], replacements: dict[str, str]) -> list[dict[str, Any]]:
+    """The definition's parts with every known id swapped, `.platform` dropped.
+
+    `.platform` carries the display name and the logical id of the source item; letting
+    it through would stamp the copy with the original's identity.
+    """
+    parts: list[dict[str, Any]] = []
+    for part in definition.get("parts", []):
+        if part.get("path") == PLATFORM_PART:
+            continue
+        text = base64.b64decode(part["payload"]).decode("utf-8")
+        for source, target in replacements.items():
+            # Ids appear in both cases in practice; normalise on the way in.
+            text = re.sub(re.escape(source), target, text, flags=re.I)
+        parts.append(
+            {
+                "path": part["path"],
+                "payload": base64.b64encode(text.encode("utf-8")).decode("ascii"),
+                "payloadType": "InlineBase64",
+            }
+        )
+    return parts
+
+
 class ObservedItem(BaseModel):
     id: str
     name: str
     type: str
     digest: str | None = None
     """None when the item type carries no definition this API returns."""
+
+    references: set[str] = Field(default_factory=set)
+    """Ids this item's definition mentions. Empty when no definition was fetched."""
+
+    parts: list[dict[str, Any]] = Field(default_factory=list)
+    """The definition itself, needed to fingerprint what a promotion would produce."""
 
 
 class ObservedPair(BaseModel):
@@ -101,6 +168,12 @@ class ObservedPair(BaseModel):
     target_id: str
     source_items: list[ObservedItem] = []
     target_items: list[ObservedItem] = []
+
+    source_all: dict[str, str] = Field(default_factory=dict)
+    """Every item in the source, id -> `name\\x00type`. Needed to name a reference."""
+
+    target_all: dict[str, str] = Field(default_factory=dict)
+    """Every item in the target, `name\\x00type` -> id. Needed to resolve one."""
 
 
 class Observed(BaseModel):

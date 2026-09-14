@@ -92,6 +92,15 @@ Found against the live server, absent from the docs, each one already handled:
   only `rest` and the ToolBus serves them over REST on either transport.
 - `list_folders` omits `parentFolderId` entirely for folders at the top level rather than
   sending it as null, so "is a root folder" is tested by the field's *absence*.
+- A notebook definition must begin with `# Fabric notebook source`. Prepending anything
+  to `notebook-content.py` is rejected as `PyToIPynbFailure` when the definition is
+  written back.
+- Deleting a lakehouse and then, immediately, a notebook attached to it answers
+  `400 UnknownError` for a moment. The same delete succeeds seconds later; retry rather
+  than believe it.
+- `getDefinition` answers `202` with an operation, and `runOnDemand` answers `202` with
+  only a `Location` header and no operation id — so a 202 does not always mean there is
+  something to wait for.
 
 ## Authentication
 

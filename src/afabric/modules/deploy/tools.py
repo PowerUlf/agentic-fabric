@@ -15,5 +15,21 @@ SPECS = [
         name="get_item_definition",
         description="Get one item's definition: its parts, each base64 encoded.",
         rest=RestOp("POST", "/workspaces/{workspaceId}/items/{itemId}/getDefinition"),
-    )
+    ),
+    # --- writes ---------------------------------------------------------------
+    ToolSpec(
+        name="create_item_with_definition",
+        description="Create an item in a workspace from a definition.",
+        rest=RestOp("POST", "/workspaces/{workspaceId}/items"),
+    ),
+    ToolSpec(
+        name="delete_item",
+        description="Delete one item from a workspace.",
+        rest=RestOp("DELETE", "/workspaces/{workspaceId}/items/{itemId}"),
+    ),
+    ToolSpec(
+        name="update_item_definition",
+        description="Replace an existing item's definition. Leaves its metadata alone.",
+        rest=RestOp("POST", "/workspaces/{workspaceId}/items/{itemId}/updateDefinition"),
+    ),
 ]

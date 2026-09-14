@@ -73,9 +73,9 @@ Modules never import each other. They depend on capabilities declared at the Too
 `workspace.ensure` is consumed by name, not by import.
 
 Four exist: `workspace` reconciles workspaces, folders and roles; `job-health` watches job
-runs and schedules; `governance` audits house rules; `deploy` compares item definitions
-between two workspaces and plans the promotion. The last three read and plan — their
-`apply` refuses rather than acting on something nothing has verified. Planned:
+runs, schedules and reruns; `deploy` promotes item definitions from one workspace to
+another, rewriting the ids inside them so a copy points at its new home; `governance`
+audits house rules and reports what it finds, leaving the fix to `workspaces:`. Planned:
 `data-engineering`.
 
 The third module cost a directory and nothing else — no kernel edit, not even for its

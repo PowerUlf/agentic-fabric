@@ -259,16 +259,31 @@ identisch.
 **202**, `RestClient.await_operation` holt das Ergebnis. Der Code, der laut diesem TODO
 nie ausgeführt worden war, trägt also.
 
+**Schreibpfad seit 2026-09-14, live verifiziert.** `apply` legt Items an und aktualisiert
+sie, mit umgeschriebenen Ids.
+
+- **Vergleich über normalisierte Fingerabdrücke.** Beim Promoten ändern sich die Ids —
+  gegen die rohe Quelle verglichen wäre jede Kopie für immer „anders". Deshalb ersetzt
+  `observe` auf **beiden** Seiten jede bekannte Id durch das, was sie *bedeutet*
+  (`@workspace`, `@nb_bronze (Notebook)`), und hasht erst dann. Ids, die keine Seite
+  benennen kann, bleiben stehen: unterscheiden die sich, ist das ein echter Unterschied.
+- **Unauflösbare Referenz blockiert das Item** (`item.blocked`), und die Blockade pflanzt
+  sich fort: Wer ein blockiertes Item ruft, wandert selbst nicht. Auflösen über `map:`
+  (Quell-Item-Name → Ziel-Item-Name) oder indem man das Referenzierte mitnimmt.
+- **Reihenfolge nach Abhängigkeit.** Ids neu angelegter Items stehen erst beim Anwenden
+  fest, deshalb sortiert `plan` Abhängiges hinter seine Abhängigkeit, und `apply` füttert
+  die frisch entstandene Id in die nächste Definition.
+- Live: `faf_dev` → `afab_e2e`, sechs Items in der Reihenfolge Lakehouse, Notebooks,
+  Pipeline. Danach zeigten alle Kopien auf **Ziel**-Lakehouse, -Notebooks und -Workspace,
+  `plan` war leer. Dann eine Kopie von Hand verändert → `item.update` → repariert →
+  wieder leer. Anschließend alles aus `afab_e2e` entfernt.
+
 Offen an diesem Modul:
 
-- [ ] `apply` bewusst nicht implementiert. Ein Item aus fremder Definition anzulegen heißt,
-      die Ids darin umzuschreiben — die Lakehouse-Id in `%%configure` ist je Workspace eine
-      andere. Genau dafür hat `fabric-cicd` Parameter-Dateien. Ohne diesen Schritt wäre
-      Schreiben unehrlich.
-- [ ] Nur `Notebook` und `DataPipeline` als Standard. Andere Typen sind deklarierbar, aber
-      ungetestet.
-- [ ] Der Fall „Item existiert in beiden, Definition identisch" ist nur im Unit-Test
-      belegt; `afab_e2e` ist leer, live kam nur der Create-Fall vor.
+- [ ] Nur `Notebook`, `DataPipeline` und `Lakehouse` sind erprobt. Andere Typen sind
+      deklarierbar, aber ungetestet — und ein Lakehouse wandert **leer**, nur als Hülle.
+- [ ] Kein Deployment über mehrere Stufen (dev → test → prod) und keine Parametrisierung
+      jenseits von Ids, etwa Verbindungszeichenfolgen.
 
 ## Offen, ohne Eile
 
