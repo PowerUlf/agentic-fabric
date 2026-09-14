@@ -31,6 +31,14 @@ SPECS = [
         rest=RestOp("POST", "/workspaces/{workspaceId}/items/{itemId}/jobs/{jobType}/schedules"),
     ),
     ToolSpec(
+        name="update_item_schedule",
+        description="Change an existing schedule. Replaces its whole configuration.",
+        rest=RestOp(
+            "PATCH",
+            "/workspaces/{workspaceId}/items/{itemId}/jobs/{jobType}/schedules/{scheduleId}",
+        ),
+    ),
+    ToolSpec(
         name="run_item_job",
         description="Start one on-demand run of an item's job.",
         rest=RestOp("POST", "/workspaces/{workspaceId}/items/{itemId}/jobs/{jobType}/instances"),

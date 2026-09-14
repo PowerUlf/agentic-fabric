@@ -123,7 +123,7 @@ def test_a_missing_workspace_is_recorded_and_refuses_planning():
 
 
 def test_plans_a_schedule_where_one_is_declared_and_missing():
-    bus = FakeBus(schedules={"nb1": [{"id": "s1", "enabled": True}]})
+    bus = FakeBus(schedules={"nb1": [_existing()]})
     desired = _config(items="nb_*", schedule=SCHEDULE, rerun_failed=False)
 
     changes = process.plan(desired, _observe(bus, desired), POLICY, now=NOW)
@@ -147,6 +147,84 @@ def test_the_body_apply_will_send_is_decided_while_planning():
         "endDateTime": "2027-09-13T13:00:00",
     }
     assert change.after["every_minutes"] == 60
+
+
+def _existing(interval=60, timezone="W. Europe Standard Time", enabled=True):
+    return {
+        "id": "s1",
+        "enabled": enabled,
+        "configuration": {
+            "type": "Cron",
+            "interval": interval,
+            "localTimeZoneId": timezone,
+            "startDateTime": "2026-01-01T03:00:00",
+            "endDateTime": "2027-01-01T03:00:00",
+        },
+    }
+
+
+def _schedule_plan(existing, **schedule):
+    bus = FakeBus(schedules={"nb1": [existing]})
+    desired = _config(items="nb_bronze", schedule={**SCHEDULE, **schedule}, rerun_failed=False)
+    return bus, process.plan(desired, _observe(bus, desired), POLICY, now=NOW)
+
+
+class TestScheduleContent:
+    def test_a_matching_schedule_is_no_change(self):
+        _, changes = _schedule_plan(_existing())
+        assert changes == []
+
+    def test_a_different_interval_is_planned(self):
+        _, [change] = _schedule_plan(_existing(interval=30))
+        assert change.action == "job.schedule_update" and change.risk.value == "reversible"
+        assert (change.before, change.after) == ({"interval_minutes": 30}, {"interval_minutes": 60})
+
+    def test_a_disabled_schedule_names_the_auto_disable(self):
+        _, [change] = _schedule_plan(_existing(enabled=False))
+        assert change.before == {"enabled": False} and change.after == {"enabled": True}
+        assert "ten consecutive failures" in change.reason
+
+    def test_the_window_is_carried_over_rather_than_moved(self):
+        _, [change] = _schedule_plan(_existing(interval=30))
+        configuration = change.metadata["configuration"]
+        assert configuration["interval"] == 60
+        # Untouched: changing an interval must not shift when the schedule runs.
+        assert configuration["startDateTime"] == "2026-01-01T03:00:00"
+        assert configuration["endDateTime"] == "2027-01-01T03:00:00"
+
+    def test_a_declared_window_wins(self):
+        _, [change] = _schedule_plan(
+            _existing(interval=30), start="2030-06-01T05:00:00", end="2030-07-01T05:00:00"
+        )
+        assert change.metadata["configuration"]["startDateTime"] == "2030-06-01T05:00:00"
+
+    def test_several_schedules_refuse_rather_than_guess(self):
+        bus = FakeBus(schedules={"nb1": [_existing(), _existing()]})
+        desired = _config(items="nb_bronze", schedule=SCHEDULE, rerun_failed=False)
+        with pytest.raises(process.PlanError, match="2 schedules exist"):
+            process.plan(desired, _observe(bus, desired), POLICY, now=NOW)
+
+    def test_the_projection_settles(self):
+        bus = FakeBus(schedules={"nb1": [_existing(interval=30, enabled=False)]})
+        desired = _config(items="nb_bronze", schedule=SCHEDULE, rerun_failed=False)
+        observed = _observe(bus, desired)
+
+        changes = process.plan(desired, observed, POLICY, now=NOW)
+        after = process.project(observed, changes)
+
+        assert process.plan(desired, after, POLICY, now=NOW) == []
+
+    def test_apply_updates_the_existing_schedule(self):
+        bus = WritingBus(schedules={"nb1": [_existing(interval=30)]})
+        desired = _config(items="nb_bronze", schedule=SCHEDULE, rerun_failed=False)
+        changes = process.plan(desired, _observe(bus, desired), POLICY, now=NOW)
+
+        outcomes = asyncio.run(process.apply(changes, bus))
+
+        assert [o.ok for o in outcomes] == [True]
+        [(_, args)] = [c for c in bus.calls if c[0] == "update_item_schedule"]
+        assert args["scheduleId"] == "s1" and args["enabled"] is True
+        assert args["configuration"]["interval"] == 60
 
 
 def test_plans_a_rerun_for_a_failed_newest_run():
@@ -197,7 +275,7 @@ def test_an_item_that_never_ran_is_planned_once_stale_is_declared():
 def test_nothing_is_planned_when_the_expectation_holds():
     bus = FakeBus(
         runs={"nb1": [_run("nb1", "Completed", 1)]},
-        schedules={"nb1": [{"id": "s1"}]},
+        schedules={"nb1": [_existing()]},
     )
     desired = _config(items="nb_bronze", schedule=SCHEDULE, stale_after_hours=24)
     assert process.plan(desired, _observe(bus, desired), POLICY, now=NOW) == []
@@ -231,7 +309,7 @@ class WritingBus(FakeBus):
         self.fail = fail
 
     async def call(self, name, **args):
-        if name in {"create_item_schedule", "run_item_job"}:
+        if name in {"create_item_schedule", "update_item_schedule", "run_item_job"}:
             self.calls.append((name, args))
             if name == self.fail:
                 raise RuntimeError("tenant said no")

@@ -62,6 +62,46 @@ class ScheduleSpec(BaseModel):
             "endDateTime": _stamp(end),
         }
 
+    def differences(self, schedule: dict[str, Any]) -> dict[str, tuple[Any, Any]]:
+        """What an existing schedule holds differently, as `field -> (observed, declared)`.
+
+        Only interval, time zone and whether it runs at all. The window is left out on
+        purpose: with no `start` declared the default moves with the clock, so comparing
+        it would report drift on every plan and never settle.
+        """
+        configuration = schedule.get("configuration") or {}
+        found: dict[str, tuple[Any, Any]] = {}
+        pairs = {
+            "interval_minutes": (configuration.get("interval"), self.interval_minutes),
+            "timezone": (configuration.get("localTimeZoneId"), self.timezone),
+            "enabled": (schedule.get("enabled"), self.enabled),
+        }
+        for field, (observed, declared) in pairs.items():
+            if observed != declared:
+                found[field] = (observed, declared)
+        return found
+
+    def update(self, schedule: dict[str, Any]) -> dict[str, Any]:
+        """The body that brings an existing schedule in line.
+
+        PATCH replaces the whole configuration, so the observed window is carried over
+        unless this spec declares one — changing an interval must not silently move the
+        start.
+        """
+        configuration = dict(schedule.get("configuration") or {})
+        configuration.update(
+            {
+                "type": "Cron",
+                "interval": self.interval_minutes,
+                "localTimeZoneId": self.timezone,
+            }
+        )
+        if self.start:
+            configuration["startDateTime"] = _stamp(self.start)
+        if self.end:
+            configuration["endDateTime"] = _stamp(self.end)
+        return configuration
+
 
 def _stamp(moment: datetime) -> str:
     """Fabric wants `YYYY-MM-DDTHH:mm:ss`, no offset, understood as the given zone."""

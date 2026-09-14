@@ -149,6 +149,41 @@ def _for_item(watch: WatchSpec, found: ObservedWatch, item: ObservedItem, now) -
         "job_type": item.job_type,
     }
 
+    if watch.schedule is not None and len(item.schedules) == 1:
+        schedule = item.schedules[0]
+        differences = watch.schedule.differences(schedule)
+        if differences:
+            disabled = differences.get("enabled") == (False, True)
+            changes.append(
+                Change(
+                    module=MODULE,
+                    action="job.schedule_update",
+                    target=target,
+                    risk=Risk.REVERSIBLE,
+                    before={field: was for field, (was, _) in differences.items()},
+                    after={field: wanted for field, (_, wanted) in differences.items()},
+                    reason=(
+                        # Fabric disables a scheduler itself after repeated failures.
+                        "schedule is disabled — declared enabled; Fabric disables a "
+                        "scheduler after about ten consecutive failures"
+                        if disabled
+                        else "schedule differs from the declaration"
+                    ),
+                    metadata={
+                        **metadata,
+                        "schedule_id": schedule.get("id"),
+                        "configuration": watch.schedule.update(schedule),
+                        "enabled": watch.schedule.enabled,
+                    },
+                )
+            )
+    elif watch.schedule is not None and len(item.schedules) > 1:
+        # An item may hold up to 20. Which one the declaration means is not decidable,
+        # and changing the wrong one is worse than reporting nothing.
+        raise PlanError(
+            f"{target}: {len(item.schedules)} schedules exist; this module manages one"
+        )
+
     if watch.schedule is not None and not item.schedules:
         configuration = watch.schedule.configuration(now)
         changes.append(
@@ -235,8 +270,14 @@ def project(observed: Observed, changes: list[Change]) -> Observed:
         item = items.get((change.metadata.get("workspace_id"), change.metadata.get("item_id")))
         if item is None:
             continue
-        if change.action == "job.schedule":
-            item.schedules = [{"enabled": True, "projected": True}]
+        if change.action in {"job.schedule", "job.schedule_update"}:
+            item.schedules = [
+                {
+                    "id": change.metadata.get("schedule_id", "projected"),
+                    "enabled": change.metadata["enabled"],
+                    "configuration": change.metadata["configuration"],
+                }
+            ]
         elif change.action == "job.rerun":
             # A requested run is assumed to succeed; planning against this state must
             # therefore be empty, which is what idempotency means here. It starts after
@@ -294,6 +335,16 @@ async def _apply_one(change: Change, bus) -> Outcome:
         )
         schedule_id = (body or {}).get("id")
         return Outcome(change=change, ok=True, output={"schedule_id": schedule_id})
+
+    if change.action == "job.schedule_update":
+        await bus.call(
+            "update_item_schedule",
+            **where,
+            scheduleId=change.metadata["schedule_id"],
+            enabled=change.metadata["enabled"],
+            configuration=change.metadata["configuration"],
+        )
+        return Outcome(change=change, ok=True, output={})
 
     if change.action == "job.rerun":
         # 202 with a Location header and no body: started is all the API promises. The

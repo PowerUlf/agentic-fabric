@@ -173,9 +173,20 @@ Läufe, in Plan-Reihenfolge, Abbruch beim ersten Fehler.
   Standard eine Stunde in der Zukunft und nicht „jetzt".
 
 Offen an diesem Modul:
-- [ ] Zeitplan-Inhalt wird nicht verglichen — nur „existiert" oder „fehlt". Intervall,
-      Zeitzone und `enabled` bleiben unbeachtet.
-- [ ] Auto-Disable des Schedulers (nach ~10 Fehlläufen) wird nicht erkannt.
+- [x] **Zeitplan-Inhalt wird verglichen (2026-09-14).** Intervall, Zeitzone und `enabled`;
+      bei Abweichung `job.schedule_update` (PATCH, reversibel). Das **Fenster bleibt außen
+      vor**: ohne deklariertes `start` wandert der Default mit der Uhr, ein Vergleich
+      meldete also bei jedem Plan Drift und käme nie zur Ruhe. Beim Anwenden wird das
+      vorhandene Fenster übernommen — ein geändertes Intervall darf den Start nicht
+      stillschweigend verschieben.
+      Live geprüft: 1440 → 60 Minuten geändert, Fenster (2030) unangetastet, `plan` danach
+      leer, Zeitplan wieder gelöscht.
+- [x] **Auto-Disable wird erkannt (2026-09-14)** — als Sonderfall des Inhaltsvergleichs:
+      ein `enabled: false` gegen eine Deklaration mit `enabled: true`. Der Grund nennt
+      Fabrics Abschaltung nach etwa zehn Fehlläufen ausdrücklich, damit niemand den
+      Zeitplan blind wieder einschaltet, ohne die Ursache anzusehen.
+- [ ] Mehr als ein Zeitplan je Item: `plan` bricht ab, statt zu raten (bis zu 20 sind
+      erlaubt). Eine Deklaration mehrerer Zeitpläne fehlt.
 
 ## Phase 5 — Modul 3: `governance` (2026-09-14)
 
